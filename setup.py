@@ -18,6 +18,8 @@ setup(
   ],
   install_requires=[
     'einops>=0.4',
+    'faiss-gpu',
+    'numpy',
     'torch>=1.6',
   ],
   classifiers=[
