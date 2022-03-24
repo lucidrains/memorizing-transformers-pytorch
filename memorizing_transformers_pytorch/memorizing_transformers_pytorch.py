@@ -20,6 +20,10 @@ def cast_tuple(val, length = 1):
 def l2norm(t):
     return F.normalize(t, dim = -1)
 
+def stable_softmax(t, dim = -1):
+    t = t - t.amax(dim = dim, keepdim = True).detach()
+    return F.softmax(t, dim = dim)
+
 # helper classes
 
 class PreNormResidual(nn.Module):
@@ -108,17 +112,18 @@ class Attention(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
+        self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
     def forward(self, x):
         h = self.heads
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), (q, k, v))
+        q = rearrange(q, 'b n (h d) -> b h n d', h = h)
+
         q = q * self.scale
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k)
+        sim = einsum('b h i d, b j d -> b h i j', q, k)
 
         sim = self.rel_pos_bias(sim) + sim
 
@@ -126,11 +131,10 @@ class Attention(nn.Module):
         causal_mask = torch.ones((i, j), dtype = torch.bool).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
-        sim = sim - sim.amax(dim = -1, keepdim = True).detach()
-        attn = sim.softmax(dim = -1)
+        attn = stable_softmax(sim)
         attn = self.dropout(attn)
 
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = einsum('b h i j, b j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
@@ -157,22 +161,22 @@ class KNNAttention(nn.Module):
         self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5)
         self.dropout = nn.Dropout(dropout)
 
-        self.null_k = nn.Parameter(torch.randn(heads, 1, dim_head))
-        self.null_v = nn.Parameter(torch.randn(heads, 1, dim_head))
+        self.null_k = nn.Parameter(torch.randn(dim_head))
+        self.null_v = nn.Parameter(torch.randn(dim_head))
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
+        self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
     def forward(self, x, *, index = None):
         h = self.heads
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), (q, k, v))
+        q = rearrange(q, 'b n (h d) -> b h n d', h = h)
 
         # calculate local attention
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
 
         sim = self.rel_pos_bias(sim) + sim
 
@@ -182,11 +186,10 @@ class KNNAttention(nn.Module):
         causal_mask = torch.ones((i, j), dtype = torch.bool).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, mask_value)
 
-        sim = sim - sim.amax(dim = -1, keepdim = True).detach()
-        attn = sim.softmax(dim = -1)
+        attn = stable_softmax(sim)
         attn = self.dropout(attn)
 
-        local_values = einsum('b h i j, b h j d -> b h i d', attn, v)
+        local_values = einsum('b h i j, b j d -> b h i d', attn, v)
 
         # calculate knn attention over memory, if index is passed in
 
@@ -195,20 +198,19 @@ class KNNAttention(nn.Module):
 
             # use null key / value to protect against empty memory
 
-            null_k, null_v = map(lambda t: rearrange(t, 'h 1 d -> b h 1 d', b = x.shape[0]), (self.null_k, self.null_v))
+            null_k, null_v = map(lambda t: rearrange(t, 'd -> b 1 d', b = x.shape[0]), (self.null_k, self.null_v))
 
             k_mem = torch.cat((null_k, k_mem), dim = -2)
             v_mem = torch.cat((null_v, v_mem), dim = -2)
             mem_mask = F.pad(mem_mask, (1, 0), value = True)
 
-            sim_mem = einsum('b h i d, b h j d -> b h i j', q, mem_k) * self.scale
-            sim_mem = sim_mem - sim_mem.amax(dim = -1, keepdim = True).detach()
+            sim_mem = einsum('b h i d, b j d -> b h i j', q, mem_k) * self.scale
 
             sim = sim.masked_fill(~mem_mask, mask_value)
-            attn_mem = sim_mem.softmax(dim = -1)
+            attn_mem = stable_softmax(sim_mem)
             attn_mem = self.dropout(attn_mem)
 
-            mem_values = einsum('b h i j, b h j d -> b h i d', attn_mem, v_mem)
+            mem_values = einsum('b h i j, b j d -> b h i d', attn_mem, v_mem)
 
             # do head-wise gating, as described in paper
 

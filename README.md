@@ -22,3 +22,13 @@ Implementation of <a href="https://arxiv.org/abs/2203.08913">Memorizing Transfor
   year    = {2022}
 }
 ```
+
+```bibtex
+@article{Shazeer2019FastTD,
+  title   = {Fast Transformer Decoding: One Write-Head is All You Need},
+  author  = {Noam M. Shazeer},
+  journal = {ArXiv},
+  year    = {2019},
+  volume  = {abs/1911.02150}
+}
+```
