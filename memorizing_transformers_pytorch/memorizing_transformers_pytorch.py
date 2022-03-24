@@ -14,6 +14,9 @@ def exists(val):
 def default(val, d):
     return val if exists(val) else d
 
+def cast_tuple(val, length = 1):
+    return val if isinstance(val, tuple) else ((val,) * length)
+
 def l2norm(t):
     return F.normalize(t, dim = -1)
 
@@ -141,14 +144,14 @@ class KNNAttention(nn.Module):
         heads = 8,
         dim_head = 64,
         dropout = 0.,
-        index_search_topk = 32
+        num_retrieved_memories = 32
     ):
         super().__init__()
         self.heads = heads
         self.scale = dim_head ** -0.5
         inner_dim = heads * dim_head
 
-        self.index_search_topk = index_search_topk
+        self.num_retrieved_memories = num_retrieved_memories
         self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
 
         self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5)
@@ -161,7 +164,7 @@ class KNNAttention(nn.Module):
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x, *, index):
+    def forward(self, x, *, index = None):
         h = self.heads
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
@@ -185,31 +188,34 @@ class KNNAttention(nn.Module):
 
         local_values = einsum('b h i j, b h j d -> b h i d', attn, v)
 
-        # calculate knn attention over memory
+        # calculate knn attention over memory, if index is passed in
 
-        k_mem, v_mem, mem_mask = index.search(q, k = self.index_search_topk)
+        if exists(index):
+            k_mem, v_mem, mem_mask = index.search(q, k = self.num_retrieved_memories)
 
-        # use null key / value to protect against empty memory
+            # use null key / value to protect against empty memory
 
-        null_k, null_v = map(lambda t: rearrange(t, 'h 1 d -> b h 1 d', b = x.shape[0]), (self.null_k, self.null_v))
+            null_k, null_v = map(lambda t: rearrange(t, 'h 1 d -> b h 1 d', b = x.shape[0]), (self.null_k, self.null_v))
 
-        k_mem = torch.cat((null_k, k_mem), dim = -2)
-        v_mem = torch.cat((null_v, v_mem), dim = -2)
-        mem_mask = F.pad(mem_mask, (1, 0), value = True)
+            k_mem = torch.cat((null_k, k_mem), dim = -2)
+            v_mem = torch.cat((null_v, v_mem), dim = -2)
+            mem_mask = F.pad(mem_mask, (1, 0), value = True)
 
-        sim_mem = einsum('b h i d, b h j d -> b h i j', q, mem_k) * self.scale
-        sim_mem = sim_mem - sim_mem.amax(dim = -1, keepdim = True).detach()
+            sim_mem = einsum('b h i d, b h j d -> b h i j', q, mem_k) * self.scale
+            sim_mem = sim_mem - sim_mem.amax(dim = -1, keepdim = True).detach()
 
-        sim = sim.masked_fill(~mem_mask, mask_value)
-        attn_mem = sim_mem.softmax(dim = -1)
-        attn_mem = self.dropout(attn_mem)
+            sim = sim.masked_fill(~mem_mask, mask_value)
+            attn_mem = sim_mem.softmax(dim = -1)
+            attn_mem = self.dropout(attn_mem)
 
-        mem_values = einsum('b h i j, b h j d -> b h i d', attn_mem, v_mem)
+            mem_values = einsum('b h i j, b h j d -> b h i d', attn_mem, v_mem)
 
-        # do head-wise gating, as described in paper
+            # do head-wise gating, as described in paper
 
-        gate = self.combine_attn_output_gate.sigmoid()
-        out = local_values * gate + mem_values * (1 - gate)
+            gate = self.combine_attn_output_gate.sigmoid()
+            out = local_values * gate + mem_values * (1 - gate)
+        else:
+            out = local_values
 
         # combine heads and project out
 
@@ -229,17 +235,29 @@ class MemorizingTransformer(nn.Module):
         heads = 8,
         attn_dropout = 0.,
         ff_mult = 4,
-        ff_dropout = 0.
+        ff_dropout = 0.,
+        memorizing_layers = None,
+        num_retrieved_memories = 32
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
 
         block_wrapper = partial(PreNormResidual, dim)
 
+        memorizing_layers = default(memorizing_layers, (depth // 2,)) # default KNN attention layer to midpoint of transformer
+        memorizing_layers = cast_tuple(memorizing_layers)
+
         self.layers = nn.ModuleList([])
-        for _ in range(depth):
+        for idx in range(depth):
+            use_knn_attention = (idx + 1) in memorizing_layers
+
+            if use_knn_attention:
+                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories)
+            else:
+                attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout)
+
             self.layers.append(nn.ModuleList([
-                block_wrapper(Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout)),
+                block_wrapper(attn),
                 block_wrapper(FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)),
             ]))
 
