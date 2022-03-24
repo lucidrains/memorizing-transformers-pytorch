@@ -108,7 +108,7 @@ class Attention(nn.Module):
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x, **kwargs):
+    def forward(self, x):
         h = self.heads
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
@@ -128,6 +128,91 @@ class Attention(nn.Module):
         attn = self.dropout(attn)
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+# approximate nearest neighbor attention
+
+class KNNAttention(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        heads = 8,
+        dim_head = 64,
+        dropout = 0.,
+        index_search_topk = 32
+    ):
+        super().__init__()
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+        inner_dim = heads * dim_head
+
+        self.index_search_topk = index_search_topk
+        self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
+
+        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5)
+        self.dropout = nn.Dropout(dropout)
+
+        self.null_k = nn.Parameter(torch.randn(heads, 1, dim_head))
+        self.null_v = nn.Parameter(torch.randn(heads, 1, dim_head))
+
+        self.to_q = nn.Linear(dim, inner_dim, bias = False)
+        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
+        self.to_out = nn.Linear(inner_dim, dim)
+
+    def forward(self, x, *, index):
+        h = self.heads
+        q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
+
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), (q, k, v))
+
+        # calculate local attention
+
+        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+
+        sim = self.rel_pos_bias(sim) + sim
+
+        i, j = sim.shape[-2:]
+        mask_value = -torch.finfo(sim.dtype).max
+
+        causal_mask = torch.ones((i, j), dtype = torch.bool).triu(j - i + 1)
+        sim = sim.masked_fill(causal_mask, mask_value)
+
+        sim = sim - sim.amax(dim = -1, keepdim = True).detach()
+        attn = sim.softmax(dim = -1)
+        attn = self.dropout(attn)
+
+        local_values = einsum('b h i j, b h j d -> b h i d', attn, v)
+
+        # calculate knn attention over memory
+
+        k_mem, v_mem, mem_mask = index.search(q, k = self.index_search_topk)
+
+        # use null key / value to protect against empty memory
+
+        null_k, null_v = map(lambda t: rearrange(t, 'h 1 d -> b h 1 d', b = x.shape[0]), (self.null_k, self.null_v))
+
+        k_mem = torch.cat((null_k, k_mem), dim = -2)
+        v_mem = torch.cat((null_v, v_mem), dim = -2)
+        mem_mask = F.pad(mem_mask, (1, 0), value = True)
+
+        sim_mem = einsum('b h i d, b h j d -> b h i j', q, mem_k) * self.scale
+        sim_mem = sim_mem - sim_mem.amax(dim = -1, keepdim = True).detach()
+
+        sim = sim.masked_fill(~mem_mask, mask_value)
+        attn_mem = sim_mem.softmax(dim = -1)
+        attn_mem = self.dropout(attn_mem)
+
+        mem_values = einsum('b h i j, b h j d -> b h i d', attn_mem, v_mem)
+
+        # do head-wise gating, as described in paper
+
+        gate = self.combine_attn_output_gate.sigmoid()
+        out = local_values * gate + mem_values * (1 - gate)
+
+        # combine heads and project out
+
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
