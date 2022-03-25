@@ -13,6 +13,7 @@ $ pip install memorizing-transformers-pytorch
 ## Usage
 
 ```python
+import torch
 from memorizing_transformers_pytorch import MemorizingTransformer
 
 model = MemorizingTransformer(
