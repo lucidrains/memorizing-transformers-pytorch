@@ -115,7 +115,8 @@ class ANNMemory():
         self.db_offsets += num_memories
 
     def search(self, queries, topk, nprobe = 8):
-        queries = queries.numpy()
+        device = queries.device
+        queries = queries.cpu().numpy()
 
         all_masks = []
         all_key_values = []
@@ -132,8 +133,9 @@ class ANNMemory():
 
         all_masks = torch.stack(all_masks)
         all_key_values = torch.stack(all_key_values)
+        all_key_values = all_key_values.masked_fill(~all_masks[..., None, None], 0.)
 
-        return all_key_values, all_masks
+        return all_key_values.to(device), all_masks.to(device)
 
     def cleanup(self):
         for ann in self.anns:
