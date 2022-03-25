@@ -7,11 +7,11 @@ import torch.nn.functional as F
 from torch import nn, einsum
 from einops import rearrange, repeat
 
-from memorizing_transformers_pytorch.ann_memory import ANNMemory
+from memorizing_transformers_pytorch.knn_memory import KNNMemory
 
 # constants
 
-DEFAULT_ANN_MEMORY_MEMMAP_DIRECTORY = './.tmp/ann.memories'
+DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY = './.tmp/knn.memories'
 
 # helper functions
 
@@ -178,7 +178,7 @@ class KNNAttention(nn.Module):
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x, *, ann_memory = None, add_memory = True):
+    def forward(self, x, *, knn_memory = None, add_memory = True):
         b, n, h, device = *x.shape[:2], self.heads, x.device
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
@@ -203,10 +203,10 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
-        if exists(ann_memory):
-            ann_queries = rearrange(q, 'b h n d -> b (h n) d')
+        if exists(knn_memory):
+            knn_queries = rearrange(q, 'b h n d -> b (h n) d')
 
-            mem_kv, mem_mask = ann_memory.search(ann_queries, self.num_retrieved_memories)
+            mem_kv, mem_mask = knn_memory.search(knn_queries, self.num_retrieved_memories)
 
             mem_mask = rearrange(mem_mask, 'b (h i) j -> b h i j', h = h)
             mem_k, mem_v = rearrange(mem_kv, 'b (h i) j kv d -> b h i j kv d', h = h).unbind(dim = -2)
@@ -231,12 +231,11 @@ class KNNAttention(nn.Module):
             gate = self.combine_attn_output_gate.sigmoid()
             out = local_values * gate + mem_values * (1 - gate)
 
-            # add new memories to ANNMemory
+            # add new memories to KNNMemory
 
             if add_memory:
-                k, v = map(l2norm, (k, v)) # in paper, they showed that normalizing the keys / values led to more stable training
                 kv = torch.stack((k, v), dim = -2)
-                ann_memory.add(kv)
+                knn_memory.add(l2norm(kv))  # in paper, they showed that normalizing the keys / values led to more stable training
 
         else:
             out = local_values
@@ -261,13 +260,13 @@ class MemorizingTransformer(nn.Module):
         ff_mult = 4,
         ff_dropout = 0.,
         memorizing_layers = None,
-        max_ann_memories = 2048,
+        max_knn_memories = 2048,
         num_retrieved_memories = 32,
         clear_memories_on_sos_token_id = None,
-        ann_memories_directory = DEFAULT_ANN_MEMORY_MEMMAP_DIRECTORY
+        knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
     ):
         super().__init__()
-        self.memories_dir = Path(ann_memories_directory)
+        self.memories_dir = Path(knn_memories_directory)
         self.memories_dir.mkdir(exist_ok = True, parents = True)
 
         self.token_emb = nn.Embedding(num_tokens, dim)
@@ -278,7 +277,7 @@ class MemorizingTransformer(nn.Module):
         memorizing_layers = cast_tuple(memorizing_layers)
 
         self.dim_head = dim_head
-        self.max_ann_memories = max_ann_memories
+        self.max_knn_memories = max_knn_memories
 
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
@@ -307,36 +306,36 @@ class MemorizingTransformer(nn.Module):
     def forward(
         self,
         x,
-        ann_memories = None
+        knn_memories = None
     ):
         batch_size = x.shape[0]
         x = self.token_emb(x)
 
-        # validate ANN memories to have enough indices for batch size
+        # validate KNN memories to have enough indices for batch size
 
-        if exists(ann_memories):
-            assert all([memory.num_indices == batch_size for memory in ann_memories]), f'you passed in an input with batch size {batch_size} but your memories were not instantiated with that number of ANN indices'
+        if exists(knn_memories):
+            assert all([memory.num_indices == batch_size for memory in knn_memories]), f'you passed in an input with batch size {batch_size} but your memories were not instantiated with that number of KNN indices'
 
-        # if ANN memories are passed in, and researcher wants memories auto-cleared on <sos> token detection
+        # if KNN memories are passed in, and researcher wants memories auto-cleared on <sos> token detection
         # do the appropriate logic
 
-        if exists(ann_memories) and exists(self.clear_memories_on_sos_token_id):
+        if exists(knn_memories) and exists(self.clear_memories_on_sos_token_id):
             clear_memory = (x == self.clear_memories_on_sos_token_id).any(dim = -1)
             batch_indices, _ = clear_memory.nonzero(as_tuple = True)
             batch_indices_to_clear = batch_indices.tolist()
 
             if len(batch_indices_to_clear) > 0:
-                for ann_memory in ann_memories:
-                    ann_memory.clear(batch_indices_to_clear)
+                for knn_memory in knn_memories:
+                    knn_memory.clear(batch_indices_to_clear)
 
-        # if ANN memories are not instantiated (on first pass), create fresh memories
+        # if KNN memories are not instantiated (on first pass), create fresh memories
 
-        if not exists(ann_memories):
-            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'ann.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+        if not exists(knn_memories):
+            knn_memories = [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 
-        ann_memories_iter = iter(ann_memories)
+        knn_memories_iter = iter(knn_memories)
 
         # go through all layers
 
@@ -346,9 +345,9 @@ class MemorizingTransformer(nn.Module):
             is_memorizing_layer = layer_num in self.memorizing_layers
 
             if is_memorizing_layer:
-                attn_kwargs = dict(ann_memory = next(ann_memories_iter))
+                attn_kwargs = dict(knn_memory = next(knn_memories_iter))
 
             x = attn(x, **attn_kwargs)
             x = ff(x)
 
-        return self.to_logits(x), ann_memories
+        return self.to_logits(x), knn_memories

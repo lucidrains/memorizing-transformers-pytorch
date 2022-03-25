@@ -22,18 +22,18 @@ model = MemorizingTransformer(
     dim_head = 64,                      # dimension per attention head
     depth = 8,                          # number of layers
     memorizing_layers = (4, 5),         # which layers to have ANN memories
-    max_ann_memories = 2048,            # maximum ANN memories to keep (oldest ones will be discarded)
+    max_knn_memories = 2048,            # maximum ANN memories to keep (oldest ones will be discarded)
     num_retrieved_memories = 32,        # number of ANN memories to retrieve
     clear_memories_on_sos_token_id = 1, # clear passed in ANN memories automatically for batch indices which contain this specified SOS token id - otherwise, you can also manually iterate through the ANN memories and clear the indices before the next iteration
 )
 
 data = torch.randint(0, 20000, (1, 4, 1024)) # (batch, segments, seq)
 
-logits1, ann_memories1 = model(data[:, 0]) # will instantiate new ANN memories if not given
+logits1, knn_memories = model(data[:, 0]) # will instantiate new ANN memories if not given
 
-logits2, ann_memories2 = model(data[:, 1], ann_memories = ann_memories1)
-logits3, ann_memories3 = model(data[:, 2], ann_memories = ann_memories2)
-logits4, ann_memories4 = model(data[:, 3], ann_memories = ann_memories3)
+logits2, _ = model(data[:, 1], knn_memories = knn_memories)
+logits3, _ = model(data[:, 2], knn_memories = knn_memories)
+logits4, _ = model(data[:, 3], knn_memories = knn_memories)
 
 # logits - (1, 1024, 20000)
 # ann memories - List[ANNMemory]
@@ -47,9 +47,9 @@ This repository contains a wrapper around Faiss that can automatically store and
 
 ```python
 import torch
-from memorizing_transformers_pytorch import ANNMemory
+from memorizing_transformers_pytorch import KNNMemory
 
-memory = ANNMemory(
+memory = KNNMemory(
     dim = 64,                   # dimension of key / values
     max_memories = 1024,        # maximum number of memories to keep (will throw out the oldest memories for now if it overfills)
     num_indices = 2             # this should be equivalent to batch dimension, as each batch keeps track of its own memories, expiring when it sees a new document
