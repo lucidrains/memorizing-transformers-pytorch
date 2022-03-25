@@ -318,7 +318,7 @@ class MemorizingTransformer(nn.Module):
 
             if len(batch_indices_to_clear) > 0:
                 for ann_memory in ann_memories:
-                    ann_memory.clear(batch_indices)
+                    ann_memory.clear(batch_indices_to_clear)
 
         # if ANN memories are not instantiated (on first pass), create fresh memories
 
