@@ -4,12 +4,17 @@ from functools import partial
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
-from einops import rearrange
+from einops import rearrange, repeat
+
+from memorizing_transformers_pytorch.ann_memory import ANNMemory
 
 # helper functions
 
 def exists(val):
     return val is not None
+
+def unique(arr):
+    return list({el: True for el in arr}.keys())
 
 def default(val, d):
     return val if exists(val) else d
@@ -116,7 +121,7 @@ class Attention(nn.Module):
         self.to_out = nn.Linear(inner_dim, dim)
 
     def forward(self, x):
-        h = self.heads
+        h, device = self.heads, x.device
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = h)
@@ -128,7 +133,7 @@ class Attention(nn.Module):
         sim = self.rel_pos_bias(sim) + sim
 
         i, j = sim.shape[-2:]
-        causal_mask = torch.ones((i, j), dtype = torch.bool).triu(j - i + 1)
+        causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
         attn = stable_softmax(sim)
@@ -168,8 +173,8 @@ class KNNAttention(nn.Module):
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x, *, index = None):
-        h = self.heads
+    def forward(self, x, *, ann_memory = None):
+        h, device = self.heads, x.device
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = h)
@@ -183,7 +188,7 @@ class KNNAttention(nn.Module):
         i, j = sim.shape[-2:]
         mask_value = -torch.finfo(sim.dtype).max
 
-        causal_mask = torch.ones((i, j), dtype = torch.bool).triu(j - i + 1)
+        causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, mask_value)
 
         attn = stable_softmax(sim)
@@ -193,24 +198,28 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
-        if exists(index):
-            k_mem, v_mem, mem_mask = index.search(q, k = self.num_retrieved_memories)
+        if exists(ann_memory):
+            ann_queries = rearrange(q, 'b h n d -> b (h n) d')
+
+            mem_kv, mem_mask = ann_memory.search(ann_queries, self.num_retrieved_memories)
+
+            mem_mask = rearrange(mem_mask, 'b (h j) -> b h 1 j', h = h)
+            mem_k, mem_v = rearrange(mem_kv, 'b (h n) kv d -> b h n kv d', h = h).unbind(dim = -2)
 
             # use null key / value to protect against empty memory
 
-            null_k, null_v = map(lambda t: rearrange(t, 'd -> b 1 d', b = x.shape[0]), (self.null_k, self.null_v))
+            null_k, null_v = map(lambda t: repeat(t, 'd -> b h 1 d', b = x.shape[0], h = h), (self.null_k, self.null_v))
 
-            k_mem = torch.cat((null_k, k_mem), dim = -2)
-            v_mem = torch.cat((null_v, v_mem), dim = -2)
+            mem_k = torch.cat((null_k, mem_k), dim = -2)
+            mem_v = torch.cat((null_v, mem_v), dim = -2)
             mem_mask = F.pad(mem_mask, (1, 0), value = True)
+            sim_mem = einsum('b h i d, b h j d -> b h i j', q, mem_k) * self.scale
 
-            sim_mem = einsum('b h i d, b j d -> b h i j', q, mem_k) * self.scale
-
-            sim = sim.masked_fill(~mem_mask, mask_value)
+            sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
             attn_mem = stable_softmax(sim_mem)
             attn_mem = self.dropout(attn_mem)
 
-            mem_values = einsum('b h i j, b j d -> b h i d', attn_mem, v_mem)
+            mem_values = einsum('b h i j, b h j d -> b h i d', attn_mem, mem_v)
 
             # do head-wise gating, as described in paper
 
@@ -239,6 +248,7 @@ class MemorizingTransformer(nn.Module):
         ff_mult = 4,
         ff_dropout = 0.,
         memorizing_layers = None,
+        max_ann_memories = 2048,
         num_retrieved_memories = 32
     ):
         super().__init__()
@@ -248,6 +258,12 @@ class MemorizingTransformer(nn.Module):
 
         memorizing_layers = default(memorizing_layers, (depth // 2,)) # default KNN attention layer to midpoint of transformer
         memorizing_layers = cast_tuple(memorizing_layers)
+
+        self.dim_head = dim_head
+        self.max_ann_memories = max_ann_memories
+
+        self.memorizing_layers = unique(memorizing_layers)
+        self.num_memory_layers = len(memorizing_layers)
 
         self.layers = nn.ModuleList([])
         for idx in range(depth):
@@ -263,16 +279,33 @@ class MemorizingTransformer(nn.Module):
                 block_wrapper(FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)),
             ]))
 
+
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, num_tokens)
         )
 
-    def forward(self, x):
+    def forward(
+        self,
+        x,
+        ann_memories = None
+    ):
         x = self.token_emb(x)
 
-        for attn, ff in self.layers:
-            x = attn(x)
+        if not exists(ann_memories):
+            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = x.shape[0]) for _ in range(self.num_memory_layers)]
+
+        ann_memories_iter = iter(ann_memories)
+
+        for ind, (attn, ff) in enumerate(self.layers):
+            layer_num = ind + 1
+            attn_kwargs = {}
+            is_memorizing_layer = layer_num in self.memorizing_layers
+
+            if is_memorizing_layer:
+                attn_kwargs = dict(ann_memory = next(ann_memories_iter))
+
+            x = attn(x, **attn_kwargs)
             x = ff(x)
 
-        return self.to_logits(x)
+        return self.to_logits(x), ann_memories
