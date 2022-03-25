@@ -1,6 +1,6 @@
 <img src="./diagram.png" width="500px"></img>
 
-## Memorizing Transformers - Pytorch
+## Memorizing Transformers - Pytorch (wip)
 
 Implementation of <a href="https://arxiv.org/abs/2203.08913">Memorizing Transformers</a> (ICLR 2022), attention net augmented with indexing and retrieval of memories using approximate nearest neighbors, in Pytorch
 
@@ -68,6 +68,8 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 - [ ] write alternative gating that takes into account number of retrieved memories as well as positions using continuous MLP representation
 - [ ] complete transformer-xl with appropriate memory storing and retrieval strategies
+- [ ] automagically take care of clearing memories on sos token id detection
+- [ ] take care of cross entropy loss if labels passed in
 - [ ] enwik8 demo
 
 ## Citations
