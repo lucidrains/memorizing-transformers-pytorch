@@ -1,6 +1,6 @@
 <img src="./diagram.png" width="500px"></img>
 
-## Memorizing Transformers - Pytorch (wip)
+## Memorizing Transformers - Pytorch
 
 Implementation of <a href="https://arxiv.org/abs/2203.08913">Memorizing Transformers</a> (ICLR 2022), attention net augmented with indexing and retrieval of memories using approximate nearest neighbors, in Pytorch
 
@@ -13,7 +13,7 @@ $ pip install memorizing-transformers-pytorch
 ## Usage
 
 ```python
-from memorizing_transformers_pytorch.memorizing_transformers_pytorch import MemorizingTransformer
+from memorizing_transformers_pytorch import MemorizingTransformer
 
 model = MemorizingTransformer(
     num_tokens = 20000,            # number of tokens
