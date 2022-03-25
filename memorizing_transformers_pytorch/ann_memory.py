@@ -12,6 +12,9 @@ def exists(val):
 def cast_list(val):
     return val if isinstance(val, list) else [val]
 
+def check_shape(t, pattern, **kwargs):
+    return rearrange(t, f"{pattern} -> {pattern}", **kwargs)
+
 # a wrapper around faiss IndexFlatL2
 # taking care of expiring old keys automagically
 
@@ -82,6 +85,7 @@ class ANNMemory():
         memmap_filename = './ann.memory.memmap',
         ann_use_gpu = False
     ):
+        self.dim = dim
         self.num_indices = num_indices
         self.max_memories = max_memories
         self.shape = (num_indices, max_memories, 2, dim)
@@ -103,6 +107,8 @@ class ANNMemory():
         self.db_offsets[indices] = 0
 
     def add(self, memories):
+        check_shape(memories, 'b n kv d', d = self.dim, kv = 2)
+
         memories = memories.detach().cpu().numpy()
         memories = memories[:, -self.max_memories:]
         num_memories = memories.shape[1]
@@ -120,6 +126,8 @@ class ANNMemory():
         self.db_offsets += num_memories
 
     def search(self, queries, topk, nprobe = 8):
+        check_shape(queries, 'b n d', d = self.dim)
+
         device = queries.device
         queries = queries.detach().cpu().numpy()
 
