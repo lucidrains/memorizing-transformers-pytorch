@@ -173,8 +173,8 @@ class KNNAttention(nn.Module):
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x, *, ann_memory = None):
-        h, device = self.heads, x.device
+    def forward(self, x, *, ann_memory = None, add_memory = True):
+        b, n, h, device = *x.shape[:2], self.heads, x.device
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = h)
@@ -203,28 +203,36 @@ class KNNAttention(nn.Module):
 
             mem_kv, mem_mask = ann_memory.search(ann_queries, self.num_retrieved_memories)
 
-            mem_mask = rearrange(mem_mask, 'b (h j) -> b h 1 j', h = h)
-            mem_k, mem_v = rearrange(mem_kv, 'b (h n) kv d -> b h n kv d', h = h).unbind(dim = -2)
+            mem_mask = rearrange(mem_mask, 'b (h i) j -> b h i j', h = h)
+            mem_k, mem_v = rearrange(mem_kv, 'b (h i) j kv d -> b h i j kv d', h = h).unbind(dim = -2)
 
             # use null key / value to protect against empty memory
 
-            null_k, null_v = map(lambda t: repeat(t, 'd -> b h 1 d', b = x.shape[0], h = h), (self.null_k, self.null_v))
+            null_k, null_v = map(lambda t: repeat(t, 'd -> b h i 1 d', b = b, h = h, i = n), (self.null_k, self.null_v))
 
             mem_k = torch.cat((null_k, mem_k), dim = -2)
             mem_v = torch.cat((null_v, mem_v), dim = -2)
             mem_mask = F.pad(mem_mask, (1, 0), value = True)
-            sim_mem = einsum('b h i d, b h j d -> b h i j', q, mem_k) * self.scale
+            sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * self.scale
 
             sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
             attn_mem = stable_softmax(sim_mem)
             attn_mem = self.dropout(attn_mem)
 
-            mem_values = einsum('b h i j, b h j d -> b h i d', attn_mem, mem_v)
+            mem_values = einsum('b h i j, b h i j d -> b h i d', attn_mem, mem_v)
 
             # do head-wise gating, as described in paper
 
             gate = self.combine_attn_output_gate.sigmoid()
             out = local_values * gate + mem_values * (1 - gate)
+
+            # add new memories to ANNMemory
+
+            if add_memory:
+                k, v = map(l2norm, (k, v)) # in paper, they showed that normalizing the keys / values led to more stable training
+                kv = torch.stack((k, v), dim = -2)
+                ann_memory.add(kv)
+
         else:
             out = local_values
 
@@ -250,7 +258,6 @@ class MemorizingTransformer(nn.Module):
         memorizing_layers = None,
         max_ann_memories = 2048,
         num_retrieved_memories = 32,
-        ann_use_gpu = False,
         clear_memories_on_sos_token_id = None
     ):
         super().__init__()
@@ -264,7 +271,6 @@ class MemorizingTransformer(nn.Module):
         self.dim_head = dim_head
         self.max_ann_memories = max_ann_memories
 
-        self.ann_use_gpu = ann_use_gpu
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
@@ -317,7 +323,7 @@ class MemorizingTransformer(nn.Module):
         # if ANN memories are not instantiated (on first pass), create fresh memories
 
         if not exists(ann_memories):
-            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = x.shape[0], ann_use_gpu = self.ann_use_gpu) for _ in range(self.num_memory_layers)]
+            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = x.shape[0]) for _ in range(self.num_memory_layers)]
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 

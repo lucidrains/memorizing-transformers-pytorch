@@ -64,7 +64,7 @@ class ANN():
 
     def search(self, x, topk, nprobe = 8):
         if not self.index.is_trained:
-            return np.full((x.shape[0],), -1)
+            return np.full((x.shape[0], topk), -1)
 
         self.index.nprobe = nprobe
         _, indices = self.index.search(x, k = topk)
