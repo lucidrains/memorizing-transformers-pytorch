@@ -2,6 +2,7 @@ import math
 import torch
 import faiss
 import numpy as np
+from einops import rearrange
 
 # helper functions
 
@@ -108,8 +109,8 @@ class ANNMemory():
         for key, db_offset, ann in zip(keys, self.db_offsets, self.anns):
             ann.add(key, ids = ann_insert_ids + db_offset)
 
-        add_indices = (np.arange(num_memories)[None, :] + self.db_offsets[:, None]) % self.max_num_entries
-        self.db[np.arange(self.num_indices)[:, None], add_indices] = memories
+        add_indices = (rearrange(np.arange(num_memories), 'j -> 1 j') + rearrange(self.db_offsets, 'i -> i 1')) % self.max_num_entries
+        self.db[rearrange(np.arange(self.num_indices), 'i -> i 1'), add_indices] = memories
         self.db.flush()
 
         self.db_offsets += num_memories
@@ -133,7 +134,7 @@ class ANNMemory():
 
         all_masks = torch.stack(all_masks)
         all_key_values = torch.stack(all_key_values)
-        all_key_values = all_key_values.masked_fill(~all_masks[..., None, None], 0.)
+        all_key_values = all_key_values.masked_fill(~rearrange(all_masks, '... -> ... 1 1'), 0.)
 
         return all_key_values.to(device), all_masks.to(device)
 
