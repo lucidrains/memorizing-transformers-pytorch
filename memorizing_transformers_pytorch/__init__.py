@@ -1,1 +1,2 @@
 from memorizing_transformers_pytorch.memorizing_transformers_pytorch import MemorizingTransformer
+from memorizing_transformers_pytorch.ann_memory import ANNMemory
