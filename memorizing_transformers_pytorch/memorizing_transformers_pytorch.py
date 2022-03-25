@@ -249,7 +249,9 @@ class MemorizingTransformer(nn.Module):
         ff_dropout = 0.,
         memorizing_layers = None,
         max_ann_memories = 2048,
-        num_retrieved_memories = 32
+        num_retrieved_memories = 32,
+        ann_use_gpu = False,
+        clear_memories_on_sos_token_id = None
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
@@ -262,8 +264,10 @@ class MemorizingTransformer(nn.Module):
         self.dim_head = dim_head
         self.max_ann_memories = max_ann_memories
 
+        self.ann_use_gpu = ann_use_gpu
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
+        self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
 
         self.layers = nn.ModuleList([])
         for idx in range(depth):
@@ -290,12 +294,36 @@ class MemorizingTransformer(nn.Module):
         x,
         ann_memories = None
     ):
+        batch_size = x.shape[0]
         x = self.token_emb(x)
 
+        # validate ANN memories to have enough indices for batch size
+
+        if exists(ann_memories):
+            assert all([memory.num_indices == batch_size for memory in ann_memories]), f'you passed in an input with batch size {batch_size} but your memories were not instantiated with that number of ANN indices'
+
+        # if ANN memories are passed in, and researcher wants memories auto-cleared on <sos> token detection
+        # do the appropriate logic
+
+        if exists(ann_memories) and exists(self.clear_memories_on_sos_token_id):
+            clear_memory = (x == self.clear_memories_on_sos_token_id).any(dim = -1)
+            batch_indices, _ = clear_memory.nonzero(as_tuple = True)
+            batch_indices_to_clear = batch_indices.tolist()
+
+            if len(batch_indices_to_clear) > 0:
+                for ann_memory in ann_memories:
+                    ann_memory.clear(batch_indices)
+
+        # if ANN memories are not instantiated (on first pass), create fresh memories
+
         if not exists(ann_memories):
-            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = x.shape[0]) for _ in range(self.num_memory_layers)]
+            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = x.shape[0], ann_use_gpu = self.ann_use_gpu) for _ in range(self.num_memory_layers)]
+
+        # iterate through the memories in order of the ascending layers that contain KNNAttention
 
         ann_memories_iter = iter(ann_memories)
+
+        # go through all layers
 
         for ind, (attn, ff) in enumerate(self.layers):
             layer_num = ind + 1

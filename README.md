@@ -16,13 +16,14 @@ $ pip install memorizing-transformers-pytorch
 from memorizing_transformers_pytorch import MemorizingTransformer
 
 model = MemorizingTransformer(
-    num_tokens = 20000,            # number of tokens
-    dim = 512,                     # dimension
-    dim_head = 64,                 # dimension per attention head
-    depth = 8,                     # number of layers
-    memorizing_layers = (4, 5),    # which layers to have ANN memories
-    max_ann_memories = 2048,       # maximum ANN memories to keep (oldest ones will be discarded)
-    num_retrieved_memories = 32    # number of ANN memories to retrieve
+    num_tokens = 20000,                 # number of tokens
+    dim = 512,                          # dimension
+    dim_head = 64,                      # dimension per attention head
+    depth = 8,                          # number of layers
+    memorizing_layers = (4, 5),         # which layers to have ANN memories
+    max_ann_memories = 2048,            # maximum ANN memories to keep (oldest ones will be discarded)
+    num_retrieved_memories = 32,        # number of ANN memories to retrieve
+    clear_memories_on_sos_token_id = 1, # clear passed in ANN memories automatically for batch indices which contain this specified SOS token id - otherwise, you can also manually iterate through the ANN memories and clear the indices before the next iteration
 )
 
 data = torch.randint(0, 20000, (1, 4, 1024)) # (batch, segments, seq)
@@ -66,9 +67,9 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
+- [x] automagically take care of clearing memories on sos token id detection
 - [ ] write alternative gating that takes into account number of retrieved memories as well as positions using continuous MLP representation
 - [ ] complete transformer-xl with appropriate memory storing and retrieval strategies
-- [ ] automagically take care of clearing memories on sos token id detection
 - [ ] take care of cross entropy loss if labels passed in
 - [ ] enwik8 demo
 
