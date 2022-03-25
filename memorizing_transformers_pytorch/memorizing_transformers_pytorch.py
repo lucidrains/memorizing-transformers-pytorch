@@ -1,5 +1,6 @@
 import math
 from functools import partial
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -7,6 +8,10 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 
 from memorizing_transformers_pytorch.ann_memory import ANNMemory
+
+# constants
+
+DEFAULT_ANN_MEMORY_MEMMAP_DIRECTORY = './.tmp/ann.memories'
 
 # helper functions
 
@@ -258,9 +263,13 @@ class MemorizingTransformer(nn.Module):
         memorizing_layers = None,
         max_ann_memories = 2048,
         num_retrieved_memories = 32,
-        clear_memories_on_sos_token_id = None
+        clear_memories_on_sos_token_id = None,
+        ann_memories_directory = DEFAULT_ANN_MEMORY_MEMMAP_DIRECTORY
     ):
         super().__init__()
+        self.memories_dir = Path(ann_memories_directory)
+        self.memories_dir.mkdir(exist_ok = True, parents = True)
+
         self.token_emb = nn.Embedding(num_tokens, dim)
 
         block_wrapper = partial(PreNormResidual, dim)
@@ -323,7 +332,7 @@ class MemorizingTransformer(nn.Module):
         # if ANN memories are not instantiated (on first pass), create fresh memories
 
         if not exists(ann_memories):
-            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = x.shape[0]) for _ in range(self.num_memory_layers)]
+            ann_memories = [ANNMemory(dim = self.dim_head, max_memories = self.max_ann_memories, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'ann.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 
