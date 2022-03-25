@@ -86,10 +86,10 @@ class ANNMemory():
         self.anns = [ANN(dim = dim, max_num_entries = max_num_entries, use_gpu = ann_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
 
     def clear(self, indices = None):
-        indices = cast_list(indices)
-
         if not exists(indices):
             indices = list(range(self.num_indices))
+
+        indices = cast_list(indices)
 
         for index in indices:
             ann = self.anns[index]
