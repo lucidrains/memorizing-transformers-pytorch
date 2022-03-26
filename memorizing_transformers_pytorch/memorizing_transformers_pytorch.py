@@ -269,7 +269,8 @@ class MemorizingTransformer(nn.Module):
         max_knn_memories = 2048,
         num_retrieved_memories = 32,
         clear_memories_on_sos_token_id = None,
-        knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
+        knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
+        knn_use_gpu = False
     ):
         super().__init__()
         self.memories_dir = Path(knn_memories_directory)
@@ -288,6 +289,7 @@ class MemorizingTransformer(nn.Module):
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
+        self.knn_use_gpu = knn_use_gpu
 
         # relative positional bias
 
@@ -345,7 +347,7 @@ class MemorizingTransformer(nn.Module):
         # if KNN memories are not instantiated (on first pass), create fresh memories
 
         if not exists(knn_memories):
-            knn_memories = [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+            knn_memories = [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 

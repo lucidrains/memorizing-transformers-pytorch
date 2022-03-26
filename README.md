@@ -68,9 +68,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
-- [x] automagically take care of clearing memories on sos token id detection
 - [ ] write alternative gating that takes into account number of retrieved memories as well as positions using continuous MLP representation
-- [ ] https://github.com/facebookresearch/faiss/issues/1750 wait for this to be resolved before enabling faiss gpu
 - [ ] complete transformer-xl with appropriate memory storing and retrieval strategies
 - [ ] take care of cross entropy loss if labels passed in
 - [ ] enwik8 demo

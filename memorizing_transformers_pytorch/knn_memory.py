@@ -28,11 +28,9 @@ class KNN():
     ):
         nlist = math.floor(math.sqrt(max_num_entries))
         quantizer = faiss.IndexFlatL2(dim)
-        index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_L2)
+        index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
 
-        if use_gpu:
-            index = faiss.index_cpu_to_all_gpus(index)
-
+        self.use_gpu = use_gpu
         self.index = index
         self.max_num_entries = max_num_entries
         self.cap_num_entries = cap_num_entries
@@ -65,12 +63,18 @@ class KNN():
     def remove(self, ids):
         self.index.remove_ids(ids)
 
-    def search(self, x, topk, nprobe = 8):
+    def search(self, x, topk, nprobe = 8, return_distances = False):
         if not self.index.is_trained:
             return np.full((x.shape[0], topk), -1)
 
-        self.index.nprobe = nprobe
-        _, indices = self.index.search(x, k = topk)
+        search_index = faiss.index_cpu_to_all_gpus(self.index) if self.use_gpu else self.index
+
+        search_index.nprobe = nprobe
+        distances, indices = search_index.search(x, k = topk)
+
+        if return_distances:
+            return indices, distances
+
         return indices
 
 # KNN memory layer, where one can store key / value memories
