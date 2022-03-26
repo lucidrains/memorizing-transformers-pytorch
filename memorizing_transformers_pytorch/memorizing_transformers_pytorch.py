@@ -77,8 +77,7 @@ class T5RelativePositionBias(nn.Module):
         val_if_large = torch.min(val_if_large, torch.full_like(val_if_large, num_buckets - 1))
         return torch.where(is_small, n, val_if_large)
 
-    def forward(self, qk_dots):
-        i, j, device = *qk_dots.shape[-2:], qk_dots.device
+    def forward(self, i, j, *, device):
         q_pos = torch.arange(i, dtype = torch.long, device = device)
         k_pos = torch.arange(j, dtype = torch.long, device = device)
         rel_pos = rearrange(k_pos, 'j -> 1 j') - rearrange(q_pos, 'i -> i 1')
@@ -118,14 +117,13 @@ class Attention(nn.Module):
         self.scale = dim_head ** -0.5
         inner_dim = heads * dim_head
 
-        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
         self.dropout = nn.Dropout(dropout)
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x):
+    def forward(self, x, *, rel_pos_bias = None):
         h, device = self.heads, x.device
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
@@ -135,7 +133,8 @@ class Attention(nn.Module):
 
         sim = einsum('b h i d, b j d -> b h i j', q, k)
 
-        sim = self.rel_pos_bias(sim) + sim
+        if exists(rel_pos_bias):
+            sim = rel_pos_bias + sim
 
         i, j = sim.shape[-2:]
         causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
@@ -168,7 +167,6 @@ class KNNAttention(nn.Module):
         self.num_retrieved_memories = num_retrieved_memories
         self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
 
-        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
         self.dropout = nn.Dropout(dropout)
 
         self.null_k = nn.Parameter(torch.randn(dim_head))
@@ -178,7 +176,14 @@ class KNNAttention(nn.Module):
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-    def forward(self, x, *, knn_memory = None, add_memory = True):
+    def forward(
+        self,
+        x,
+        *,
+        knn_memory = None,
+        add_memory = True,
+        rel_pos_bias = None
+    ):
         b, n, h, device = *x.shape[:2], self.heads, x.device
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
@@ -188,7 +193,8 @@ class KNNAttention(nn.Module):
 
         sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
 
-        sim = self.rel_pos_bias(sim) + sim
+        if exists(rel_pos_bias):
+            sim = rel_pos_bias + sim
 
         i, j = sim.shape[-2:]
         mask_value = -torch.finfo(sim.dtype).max
@@ -283,6 +289,12 @@ class MemorizingTransformer(nn.Module):
         self.num_memory_layers = len(memorizing_layers)
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
 
+        # relative positional bias
+
+        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
+
+        # layers
+
         self.layers = nn.ModuleList([])
         for idx in range(depth):
             use_knn_attention = (idx + 1) in memorizing_layers
@@ -298,6 +310,8 @@ class MemorizingTransformer(nn.Module):
             ]))
 
 
+        # to logits
+
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, num_tokens)
@@ -308,7 +322,7 @@ class MemorizingTransformer(nn.Module):
         x,
         knn_memories = None
     ):
-        batch_size = x.shape[0]
+        batch_size, seq_len, *_, device = *x.shape, x.device
         x = self.token_emb(x)
 
         # validate KNN memories to have enough indices for batch size
@@ -337,15 +351,19 @@ class MemorizingTransformer(nn.Module):
 
         knn_memories_iter = iter(knn_memories)
 
+        # positional bias
+
+        rel_pos_bias = self.rel_pos_bias(seq_len, seq_len, device = device)
+
         # go through all layers
 
         for ind, (attn, ff) in enumerate(self.layers):
             layer_num = ind + 1
-            attn_kwargs = {}
+            attn_kwargs = dict(rel_pos_bias = rel_pos_bias)
             is_memorizing_layer = layer_num in self.memorizing_layers
 
             if is_memorizing_layer:
-                attn_kwargs = dict(knn_memory = next(knn_memories_iter))
+                attn_kwargs = {**attn_kwargs, 'knn_memory': next(knn_memories_iter)}
 
             x = attn(x, **attn_kwargs)
             x = ff(x)
