@@ -340,9 +340,11 @@ class MemorizingTransformer(nn.Module):
         self.pad_id = pad_id
 
         block_wrapper = partial(PreNormResidual, dim)
+        valid_layers = set(range(1, depth + 1))
 
         memorizing_layers = default(memorizing_layers, (depth // 2,)) # default KNN attention layer to midpoint of transformer
         memorizing_layers = cast_tuple(memorizing_layers)
+        memorizing_layers = tuple(filter(lambda i: i in valid_layers, memorizing_layers))
 
         self.dim_head = dim_head
 
@@ -350,10 +352,11 @@ class MemorizingTransformer(nn.Module):
 
         if xl_max_memories > 0:
             xl_memory_layers = default(xl_memory_layers, tuple(range(1, depth + 1)))
-            self.xl_memory_layers = unique(xl_memory_layers)
+            xl_memory_layers = unique(xl_memory_layers)
+            self.xl_memory_layers = tuple(filter(lambda i: i in valid_layers, xl_memory_layers))            
             self.num_xl_memory_layers = len(self.xl_memory_layers)
         else:
-            self.xl_memory_layers = tuple()
+            xl_memory_layers = tuple()
             self.num_xl_memory_layers = 0
 
         # knn memory hyperparameters
