@@ -37,7 +37,7 @@ class KNN():
 
         self.reset()
 
-    def cleanup(self):
+    def __del__(self):
         del self.index
 
     def reset(self):
@@ -111,7 +111,7 @@ class KNNMemory():
         self.db_offsets[indices] = 0
 
     def add(self, memories):
-        check_shape(memories, 'b n kv d', d = self.dim, kv = 2)
+        check_shape(memories, 'b n kv d', d = self.dim, kv = 2, b = self.num_indices)
 
         memories = memories.detach().cpu().numpy()
         memories = memories[:, -self.max_memories:]
@@ -130,7 +130,7 @@ class KNNMemory():
         self.db_offsets += num_memories
 
     def search(self, queries, topk, nprobe = 8):
-        check_shape(queries, 'b n d', d = self.dim)
+        check_shape(queries, 'b n d', d = self.dim, b = self.num_indices)
 
         device = queries.device
         queries = queries.detach().cpu().numpy()
@@ -154,7 +154,7 @@ class KNNMemory():
 
         return all_key_values.to(device), all_masks.to(device)
 
-    def cleanup(self):
+    def __del__(self):
         for knn in self.knns:
-            knn.cleanup()
+            del knn
         del self.db
