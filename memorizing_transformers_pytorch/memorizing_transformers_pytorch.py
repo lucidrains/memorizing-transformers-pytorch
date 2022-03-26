@@ -134,11 +134,11 @@ class Attention(nn.Module):
         q = q * self.scale
 
         sim = einsum('b h i d, b j d -> b h i j', q, k)
+        i, j = sim.shape[-2:]
 
         if exists(rel_pos_bias):
-            sim = rel_pos_bias + sim
+            sim = rel_pos_bias[-i:, -j:] + sim
 
-        i, j = sim.shape[-2:]
         causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
@@ -208,11 +208,11 @@ class KNNAttention(nn.Module):
         # calculate local attention
 
         sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
+        i, j = sim.shape[-2:]
 
         if exists(rel_pos_bias):
-            sim = rel_pos_bias + sim
+            sim = rel_pos_bias[-i:, -j:] + sim
 
-        i, j = sim.shape[-2:]
         mask_value = -torch.finfo(sim.dtype).max
 
         causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
