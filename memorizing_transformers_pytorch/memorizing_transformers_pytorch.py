@@ -273,9 +273,6 @@ class MemorizingTransformer(nn.Module):
         knn_use_gpu = False
     ):
         super().__init__()
-        self.memories_dir = Path(knn_memories_directory)
-        self.memories_dir.mkdir(exist_ok = True, parents = True)
-
         self.token_emb = nn.Embedding(num_tokens, dim)
 
         block_wrapper = partial(PreNormResidual, dim)
@@ -284,12 +281,14 @@ class MemorizingTransformer(nn.Module):
         memorizing_layers = cast_tuple(memorizing_layers)
 
         self.dim_head = dim_head
-        self.max_knn_memories = max_knn_memories
 
+        self.max_knn_memories = max_knn_memories
+        self.knn_memories_directory = knn_memories_directory
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
-        self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
         self.knn_use_gpu = knn_use_gpu
+
+        self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
 
         # relative positional bias
 
@@ -319,8 +318,16 @@ class MemorizingTransformer(nn.Module):
             nn.Linear(dim, num_tokens)
         )
 
-    def create_knn_memories(self, *, batch_size):
-        return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+    def create_knn_memories(
+        self,
+        *,
+        batch_size,
+        knn_memories_directory = None
+    ):
+        knn_memories_directory = default(knn_memories_directory, self.knn_memories_directory)
+        memories_dir = Path(knn_memories_directory)
+
+        return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
 
     def forward(
         self,
