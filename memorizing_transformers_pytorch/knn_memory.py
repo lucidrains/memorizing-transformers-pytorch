@@ -27,7 +27,7 @@ class KNN():
         use_gpu = False
     ):
         nlist = math.floor(math.sqrt(max_num_entries))
-        quantizer = faiss.IndexFlatL2(dim)
+        quantizer = faiss.IndexFlatIP(dim)
         index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
 
         self.use_gpu = use_gpu
