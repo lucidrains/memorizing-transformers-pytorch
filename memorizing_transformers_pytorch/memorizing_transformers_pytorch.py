@@ -118,7 +118,7 @@ class Attention(nn.Module):
         self.scale = dim_head ** -0.5
         inner_dim = heads * dim_head
 
-        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5)
+        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
         self.dropout = nn.Dropout(dropout)
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
@@ -168,7 +168,7 @@ class KNNAttention(nn.Module):
         self.num_retrieved_memories = num_retrieved_memories
         self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
 
-        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5)
+        self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
         self.dropout = nn.Dropout(dropout)
 
         self.null_k = nn.Parameter(torch.randn(dim_head))
