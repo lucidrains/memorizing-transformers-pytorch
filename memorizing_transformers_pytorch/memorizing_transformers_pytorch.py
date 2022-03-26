@@ -319,6 +319,9 @@ class MemorizingTransformer(nn.Module):
             nn.Linear(dim, num_tokens)
         )
 
+    def create_knn_memories(self, *, batch_size):
+        return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+
     def forward(
         self,
         x,
@@ -347,7 +350,7 @@ class MemorizingTransformer(nn.Module):
         # if KNN memories are not instantiated (on first pass), create fresh memories
 
         if not exists(knn_memories):
-            knn_memories = [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(self.memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+            knn_memories = self.create_knn_memories(batch_size)
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 

@@ -27,17 +27,11 @@ model = MemorizingTransformer(
     clear_memories_on_sos_token_id = 1, # clear passed in ANN memories automatically for batch indices which contain this specified SOS token id - otherwise, you can also manually iterate through the ANN memories and clear the indices before the next iteration
 )
 
-data = torch.randint(0, 20000, (1, 4, 1024)) # (batch, segments, seq)
+data = torch.randint(0, 20000, (2, 1024)) # mock data
 
-logits1, knn_memories = model(data[:, 0]) # will instantiate new ANN memories if not given
+knn_memories = model.create_knn_memories(batch_size = 2) # create collection of KNN memories with the correct batch size (2 in example)
 
-logits2, _ = model(data[:, 1], knn_memories = knn_memories)
-logits3, _ = model(data[:, 2], knn_memories = knn_memories)
-logits4, _ = model(data[:, 3], knn_memories = knn_memories)
-
-# logits - (1, 1024, 20000)
-# ann memories - List[ANNMemory]
-
+logits = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
 # ... and so on
 ```
 
