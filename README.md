@@ -63,7 +63,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 ## Todo
 
 - [ ] write alternative gating that takes into account number of retrieved memories as well as positions using continuous MLP representation
-- [ ] complete transformer-xl with appropriate memory storing and retrieval strategies
+- [ ] complete transformer-xl with appropriate memory storing and retrieval strategies + https://github.com/lucidrains/x-transformers#enhanced-recurrence
 - [ ] take care of cross entropy loss if labels passed in
 - [ ] enwik8 demo
 
