@@ -31,7 +31,7 @@ data = torch.randint(0, 20000, (2, 1024)) # mock data
 
 knn_memories = model.create_knn_memories(batch_size = 2) # create collection of KNN memories with the correct batch size (2 in example)
 
-logits = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
+logits, _ = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
 # ... and so on
 ```
 
@@ -62,9 +62,9 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
+- [x] take care of cross entropy loss if labels passed in
 - [ ] write alternative gating that takes into account number of retrieved memories as well as positions using continuous MLP representation
 - [ ] complete transformer-xl with appropriate memory storing and retrieval strategies + https://github.com/lucidrains/x-transformers#enhanced-recurrence
-- [ ] take care of cross entropy loss if labels passed in
 - [ ] enwik8 demo
 
 ## Citations

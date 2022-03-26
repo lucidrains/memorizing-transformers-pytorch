@@ -270,10 +270,12 @@ class MemorizingTransformer(nn.Module):
         num_retrieved_memories = 32,
         clear_memories_on_sos_token_id = None,
         knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
-        knn_use_gpu = False
+        knn_use_gpu = False,
+        pad_id = 0
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
+        self.pad_id = pad_id
 
         block_wrapper = partial(PreNormResidual, dim)
 
@@ -332,7 +334,8 @@ class MemorizingTransformer(nn.Module):
     def forward(
         self,
         x,
-        knn_memories = None
+        knn_memories = None,
+        labels = None
     ):
         batch_size, seq_len, *_, device = *x.shape, x.device
         x = self.token_emb(x)
@@ -380,4 +383,10 @@ class MemorizingTransformer(nn.Module):
             x = attn(x, **attn_kwargs)
             x = ff(x)
 
-        return self.to_logits(x), knn_memories
+        logits = self.to_logits(x)
+
+        if not exists(labels):
+            return logits, knn_memories
+
+        loss = F.cross_entropy(rearrange(logits, 'b n c -> b c n'), labels, ignore_index = self.pad_id)
+        return loss, knn_memories
