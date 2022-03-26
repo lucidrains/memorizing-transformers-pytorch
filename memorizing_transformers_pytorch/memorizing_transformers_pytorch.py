@@ -1,5 +1,6 @@
 import math
 from functools import partial
+from contextlib import contextmanager
 from pathlib import Path
 
 import torch
@@ -352,6 +353,16 @@ class MemorizingTransformer(nn.Module):
 
         return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
 
+    @contextmanager
+    def knn_memories_context(
+        self,
+        **kwargs
+    ):
+        knn_memories = self.create_knn_memories(**kwargs)
+        yield knn_memories
+        for memory in knn_memories:
+            del memory
+
     def forward(
         self,
         x,
@@ -381,7 +392,7 @@ class MemorizingTransformer(nn.Module):
         # if KNN memories are not instantiated (on first pass), create fresh memories
 
         if not exists(knn_memories):
-            knn_memories = self.create_knn_memories(batch_size)
+            knn_memories = self.create_knn_memories(batch_size = batch_size)
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 
