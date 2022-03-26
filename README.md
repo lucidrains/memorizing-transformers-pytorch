@@ -63,6 +63,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 ## Todo
 
 - [ ] complete transformer-xl with appropriate memory storing and retrieval strategies + https://github.com/lucidrains/x-transformers#enhanced-recurrence
+- [ ] try a forgetting strategy that is a function of age, number of retrievals, and time of last retrieval
 - [ ] enwik8 demo
 
 ## Citations
