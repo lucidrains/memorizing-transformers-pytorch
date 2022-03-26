@@ -5,7 +5,9 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+
 from einops import rearrange, repeat
+from einops.layers.torch import Rearrange
 
 from memorizing_transformers_pytorch.knn_memory import KNNMemory
 
@@ -157,7 +159,8 @@ class KNNAttention(nn.Module):
         heads = 8,
         dim_head = 64,
         dropout = 0.,
-        num_retrieved_memories = 32
+        num_retrieved_memories = 32,
+        intra_attn_values_gating = False
     ):
         super().__init__()
         self.heads = heads
@@ -165,7 +168,6 @@ class KNNAttention(nn.Module):
         inner_dim = heads * dim_head
 
         self.num_retrieved_memories = num_retrieved_memories
-        self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
 
         self.dropout = nn.Dropout(dropout)
 
@@ -175,6 +177,20 @@ class KNNAttention(nn.Module):
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
+
+        self.intra_attn_values_gating = intra_attn_values_gating
+
+        if not intra_attn_values_gating:
+            # this was the type of gating proposed in the paper
+            self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
+        else:
+            # proposed in alphafold2, where each token gates the aggregated values
+            # for memorizing transformers, this can be both the KNN memories and local values
+            self.values_gating = nn.Sequential(
+                nn.Linear(dim, inner_dim * 2, bias = False),
+                Rearrange('b n (h d) -> b h n d', h = heads),
+                nn.Sigmoid()
+            )
 
     def forward(
         self,
@@ -234,8 +250,12 @@ class KNNAttention(nn.Module):
 
             # do head-wise gating, as described in paper
 
-            gate = self.combine_attn_output_gate.sigmoid()
-            out = local_values * gate + mem_values * (1 - gate)
+            if self.intra_attn_values_gating:
+                local_gate, mem_gate = self.values_gating(x).chunk(2, dim = -1)
+                out = local_values * local_gate + mem_values * mem_gate
+            else:
+                gate = self.combine_attn_output_gate.sigmoid()
+                out = local_values * gate + mem_values * (1 - gate)
 
             # add new memories to KNNMemory
 
@@ -271,7 +291,8 @@ class MemorizingTransformer(nn.Module):
         clear_memories_on_sos_token_id = None,
         knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
         knn_use_gpu = False,
-        pad_id = 0
+        pad_id = 0,
+        intra_attn_values_gating = False
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
@@ -303,7 +324,7 @@ class MemorizingTransformer(nn.Module):
             use_knn_attention = (idx + 1) in memorizing_layers
 
             if use_knn_attention:
-                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories)
+                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, intra_attn_values_gating = intra_attn_values_gating)
             else:
                 attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout)
 
