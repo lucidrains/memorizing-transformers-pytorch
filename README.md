@@ -31,10 +31,40 @@ data = torch.randint(0, 20000, (2, 1024)) # mock data
 
 knn_memories = model.create_knn_memories(batch_size = 2) # create collection of KNN memories with the correct batch size (2 in example)
 
-logits, _ = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
+logits, *_ = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
 # ... and so on
 ```
 
+With Transformer-XL memories (only the memories that will be discarded will be added to the KNN memory)
+
+```python
+import torch
+from memorizing_transformers_pytorch import MemorizingTransformer
+
+model = MemorizingTransformer(
+    num_tokens = 20000,
+    dim = 512,
+    depth = 8,
+    memorizing_layers = (4, 5),
+    max_knn_memories = 16000,
+    num_retrieved_memories = 32,
+    clear_memories_on_sos_token_id = 1,
+    intra_attn_values_gating = True,      # alternative gating for knn memory vs local memory, based on alphafold2 attention architecture
+    xl_memory_layers = (2, 3, 4, 5),      # xl memory layers
+    xl_max_memories = 512                 # number of xl memories to keep
+)
+
+data = torch.randint(0, 20000, (2, 1024)) # mock data
+
+xl_memories = None
+
+with model.knn_memories_context(batch_size = 2) as knn_memories:
+    logits1, _, xl_memories = model(data, knn_memories = knn_memories, xl_memories = xl_memories)
+    logits2, _, xl_memories = model(data, knn_memories = knn_memories, xl_memories = xl_memories)
+    logits3, _, xl_memories = model(data, knn_memories = knn_memories, xl_memories = xl_memories)
+
+    # ... and so on
+```
 ## KNN Memory
 
 This repository contains a wrapper around Faiss that can automatically store and retrieve key / values
@@ -62,8 +92,6 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
-- [ ] complete transformer-xl with appropriate memory storing and retrieval strategies + https://github.com/lucidrains/x-transformers#enhanced-recurrence
-- [ ] try a forgetting strategy that is a function of age, number of retrievals, and time of last retrieval
 - [ ] enwik8 demo
 
 ## Citations
@@ -89,11 +117,11 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ```bibtex
 @Article{AlphaFold2021,
-    author  = {Jumper, John and Evans, Richard and Pritzel, Alexander and Green, Tim and Figurnov, Michael and Ronneberger, Olaf and Tunyasuvunakool, Kathryn and Bates, Russ and {\v{Z}}{\'\i}dek, Augustin and Potapenko, Anna and Bridgland, Alex and Meyer, Clemens and Kohl, Simon A A and Ballard, Andrew J and Cowie, Andrew and Romera-Paredes, Bernardino and Nikolov, Stanislav and Jain, Rishub and Adler, Jonas and Back, Trevor and Petersen, Stig and Reiman, David and Clancy, Ellen and Zielinski, Michal and Steinegger, Martin and Pacholska, Michalina and Berghammer, Tamas and Bodenstein, Sebastian and Silver, David and Vinyals, Oriol and Senior, Andrew W and Kavukcuoglu, Koray and Kohli, Pushmeet and Hassabis, Demis},
-    journal = {Nature},
-    title   = {Highly accurate protein structure prediction with {AlphaFold}},
-    year    = {2021},
-    doi     = {10.1038/s41586-021-03819-2},
-    note    = {(Accelerated article preview)},
+  author  = {Jumper, John and Evans, Richard and Pritzel, Alexander and Green, Tim and Figurnov, Michael and Ronneberger, Olaf and Tunyasuvunakool, Kathryn and Bates, Russ and {\v{Z}}{\'\i}dek, Augustin and Potapenko, Anna and Bridgland, Alex and Meyer, Clemens and Kohl, Simon A A and Ballard, Andrew J and Cowie, Andrew and Romera-Paredes, Bernardino and Nikolov, Stanislav and Jain, Rishub and Adler, Jonas and Back, Trevor and Petersen, Stig and Reiman, David and Clancy, Ellen and Zielinski, Michal and Steinegger, Martin and Pacholska, Michalina and Berghammer, Tamas and Bodenstein, Sebastian and Silver, David and Vinyals, Oriol and Senior, Andrew W and Kavukcuoglu, Koray and Kohli, Pushmeet and Hassabis, Demis},
+  journal = {Nature},
+  title   = {Highly accurate protein structure prediction with {AlphaFold}},
+  year    = {2021},
+  doi     = {10.1038/s41586-021-03819-2},
+  note    = {(Accelerated article preview)},
 }
 ```
