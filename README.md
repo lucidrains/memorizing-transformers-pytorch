@@ -35,7 +35,7 @@ logits = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
 # ... and so on
 ```
 
-## ANN Memory
+## KNN Memory
 
 This repository contains a wrapper around Faiss that can automatically store and retrieve key / values
 
