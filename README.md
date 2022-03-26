@@ -50,7 +50,7 @@ model = MemorizingTransformer(
     num_retrieved_memories = 32,
     clear_memories_on_sos_token_id = 1,
     intra_attn_values_gating = True,      # alternative gating for knn memory vs local memory, based on alphafold2 attention architecture
-    xl_memory_layers = (2, 3, 4, 5),      # xl memory layers
+    xl_memory_layers = (2, 3, 4, 5),      # xl memory layers - (https://arxiv.org/abs/2007.03356 shows you do not need XL memory on all layers, just the latter ones) - if a KNNAttention layer ends up using XL memories, only the XL memories that will be discarded will be added to long term memory
     xl_max_memories = 512                 # number of xl memories to keep
 )
 
@@ -123,5 +123,14 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
   year    = {2021},
   doi     = {10.1038/s41586-021-03819-2},
   note    = {(Accelerated article preview)},
+}
+```
+
+```bibtex
+@inproceedings{Rae2020DoTN,
+  title   = {Do Transformers Need Deep Long-Range Memory?},
+  author  = {Jack W. Rae and Ali Razavi},
+  booktitle = {ACL},
+  year    = {2020}
 }
 ```
