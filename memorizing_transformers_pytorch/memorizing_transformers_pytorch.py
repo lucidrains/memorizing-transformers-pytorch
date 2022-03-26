@@ -453,7 +453,7 @@ class MemorizingTransformer(nn.Module):
 
         # handle XL memories
 
-        xl_memories = default(xl_memories, (torch.randn(batch_size, 512, 2, 64, device = x.device),) * self.num_xl_memory_layers)
+        xl_memories = default(xl_memories, (None,) * self.num_xl_memory_layers)
         assert len(xl_memories) == self.num_xl_memory_layers
         has_xl_memories = len(xl_memories) > 0
 
@@ -464,7 +464,7 @@ class MemorizingTransformer(nn.Module):
 
         # positional bias
 
-        max_context_len = max([seq_len, *map(lambda t: t.shape[-3] + seq_len, xl_memories)])
+        max_context_len = max([seq_len, *map(lambda t: (t.shape[-3] if exists(t) else 0) + seq_len, xl_memories)])
         rel_pos_bias = self.rel_pos_bias(seq_len, max_context_len, device = device)
 
         # keep track of new xl memories
