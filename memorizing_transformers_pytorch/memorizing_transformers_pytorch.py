@@ -435,13 +435,12 @@ class MemorizingTransformer(nn.Module):
 
         # validate KNN memories to have enough indices for batch size
 
-        if exists(knn_memories):
-            assert all([memory.num_indices == batch_size for memory in knn_memories]), f'you passed in an input with batch size {batch_size} but your memories were not instantiated with that number of KNN indices'
+        assert all([memory.num_indices == batch_size for memory in knn_memories]), f'you passed in an input with batch size {batch_size} but your memories were not instantiated with that number of KNN indices'
 
         # if KNN memories are passed in, and researcher wants memories auto-cleared on <sos> token detection
         # do the appropriate logic
 
-        if exists(knn_memories) and exists(self.clear_memories_on_sos_token_id):
+        if exists(self.clear_memories_on_sos_token_id):
             clear_memory = (x == self.clear_memories_on_sos_token_id).any(dim = -1)
             batch_indices, _ = clear_memory.nonzero(as_tuple = True)
             batch_indices_to_clear = batch_indices.tolist()
@@ -504,8 +503,14 @@ class MemorizingTransformer(nn.Module):
         logits = self.to_logits(x)
 
         if not exists(labels):
-            return logits, new_xl_memories
+            if exists(new_xl_memories):
+                return logits, new_xl_memories
+
+            return logits
 
         loss = F.cross_entropy(rearrange(logits, 'b n c -> b c n'), labels, ignore_index = self.pad_id)
 
-        return loss, new_xl_memories
+        if exists(new_xl_memories):
+            return loss, new_xl_memories
+
+        return loss
