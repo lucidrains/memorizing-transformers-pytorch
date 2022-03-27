@@ -31,8 +31,7 @@ data = torch.randint(0, 20000, (2, 1024)) # mock data
 
 knn_memories = model.create_knn_memories(batch_size = 2) # create collection of KNN memories with the correct batch size (2 in example)
 
-logits, _ = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
-# ... and so on
+logits = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
 ```
 
 With Transformer-XL memories (only the memories that will be discarded will be added to the KNN memory)
@@ -64,6 +63,8 @@ with model.knn_memories_context(batch_size = 2) as knn_memories:
     logits3, xl_memories = model(data, knn_memories = knn_memories, xl_memories = xl_memories)
 
     # ... and so on
+```
+
 ## KNN Memory
 
 This repository contains a wrapper around Faiss that can automatically store and retrieve key / values

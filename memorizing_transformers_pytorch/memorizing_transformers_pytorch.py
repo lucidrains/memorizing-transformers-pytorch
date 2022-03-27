@@ -504,8 +504,14 @@ class MemorizingTransformer(nn.Module):
         logits = self.to_logits(x)
 
         if not exists(labels):
-            return logits, new_xl_memories
+            if exists(new_xl_memories):
+                return logits, new_xl_memories
+
+            return logits
 
         loss = F.cross_entropy(rearrange(logits, 'b n c -> b c n'), labels, ignore_index = self.pad_id)
 
-        return loss, new_xl_memories
+        if exists(new_xl_memories):
+            return loss, new_xl_memories
+
+        return loss
