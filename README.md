@@ -34,6 +34,14 @@ knn_memories = model.create_knn_memories(batch_size = 2) # create collection of 
 logits = model(data, knn_memories = knn_memories) # (1, 1024, 20000)
 ```
 
+You can make the KNN memories read-only by setting `add_knn_memory` on forward to `False`
+
+ex.
+
+```python
+logits = model(data, knn_memories = knn_memories, add_knn_memory = False) # knn memories will not be updated
+```
+
 With Transformer-XL memories (only the memories that will be discarded will be added to the KNN memory)
 
 ```python
