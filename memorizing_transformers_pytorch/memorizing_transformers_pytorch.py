@@ -356,7 +356,7 @@ class MemorizingTransformer(nn.Module):
             self.xl_memory_layers = tuple(filter(lambda i: i in valid_layers, xl_memory_layers))            
             self.num_xl_memory_layers = len(self.xl_memory_layers)
         else:
-            xl_memory_layers = tuple()
+            self.xl_memory_layers = tuple()
             self.num_xl_memory_layers = 0
 
         # knn memory hyperparameters
@@ -365,8 +365,9 @@ class MemorizingTransformer(nn.Module):
         self.knn_memories_directory = knn_memories_directory
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
-        self.knn_use_gpu = knn_use_gpu
+        assert self.num_memory_layers > 0
 
+        self.knn_use_gpu = knn_use_gpu
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
 
         # relative positional bias
@@ -424,7 +425,7 @@ class MemorizingTransformer(nn.Module):
     def forward(
         self,
         x,
-        knn_memories = None,
+        knn_memories,
         xl_memories = None,
         labels = None,
         add_knn_memory = True
@@ -448,11 +449,6 @@ class MemorizingTransformer(nn.Module):
             if len(batch_indices_to_clear) > 0:
                 for knn_memory in knn_memories:
                     knn_memory.clear(batch_indices_to_clear)
-
-        # if KNN memories are not instantiated (on first pass), create fresh memories
-
-        if not exists(knn_memories):
-            knn_memories = self.create_knn_memories(batch_size = batch_size)
 
         # handle XL memories
 
@@ -508,8 +504,8 @@ class MemorizingTransformer(nn.Module):
         logits = self.to_logits(x)
 
         if not exists(labels):
-            return logits, knn_memories, new_xl_memories
+            return logits, new_xl_memories
 
         loss = F.cross_entropy(rearrange(logits, 'b n c -> b c n'), labels, ignore_index = self.pad_id)
 
-        return loss, knn_memories, new_xl_memories
+        return loss, new_xl_memories
