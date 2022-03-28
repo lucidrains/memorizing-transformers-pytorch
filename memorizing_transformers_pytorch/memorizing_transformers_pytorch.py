@@ -196,6 +196,7 @@ class KNNAttention(nn.Module):
         self.num_retrieved_memories = num_retrieved_memories
 
         self.dropout = nn.Dropout(dropout)
+        self.knn_mem_dropout = nn.Dropout(dropout)
 
         self.null_k = nn.Parameter(torch.randn(dim_head))
         self.null_v = nn.Parameter(torch.randn(dim_head))
@@ -277,7 +278,7 @@ class KNNAttention(nn.Module):
 
         sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
         attn_mem = stable_softmax(sim_mem)
-        attn_mem = self.dropout(attn_mem)
+        attn_mem = self.knn_mem_dropout(attn_mem)
 
         mem_values = einsum('b h i j, b h i j d -> b h i d', attn_mem, mem_v)
 
