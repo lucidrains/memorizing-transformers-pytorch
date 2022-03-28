@@ -365,7 +365,6 @@ class MemorizingTransformer(nn.Module):
         self.knn_memories_directory = knn_memories_directory
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
-        assert self.num_memory_layers > 0
 
         self.knn_use_gpu = knn_use_gpu
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
