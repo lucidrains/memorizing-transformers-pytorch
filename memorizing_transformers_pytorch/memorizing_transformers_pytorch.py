@@ -330,10 +330,12 @@ class MemorizingTransformer(nn.Module):
         clear_memories_on_sos_token_id = None,
         knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
         knn_use_gpu = False,
+        shift_knn_memories_down = 0.,
         pad_id = 0,
         intra_attn_values_gating = False,
         xl_max_memories = 0,
-        xl_memory_layers = None
+        xl_memory_layers = None,
+        shift_xl_memories_down = 0.
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
@@ -392,6 +394,12 @@ class MemorizingTransformer(nn.Module):
                 block_wrapper(attn),
                 block_wrapper(FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)),
             ]))
+
+        # memory layer shifting
+        # from a little known paper https://arxiv.org/abs/2012.15688
+
+        self.shift_knn_memories_down = shift_knn_memories_down
+        self.shift_xl_memories_down = shift_xl_memories_down
 
         # to logits
 
@@ -453,6 +461,14 @@ class MemorizingTransformer(nn.Module):
         xl_memories = default(xl_memories, (None,) * self.num_xl_memory_layers)
         assert len(xl_memories) == self.num_xl_memory_layers
         has_xl_memories = len(xl_memories) > 0
+
+        # shifting memories a number of layers down, little known technique shown to enhance memories from Ernie-Doc paper
+
+        if len(knn_memories) > 0 and self.shift_knn_memories_down > 0:
+            knn_memories = [*knn_memories[self.shift_knn_memories_down:], *knn_memories[:self.shift_knn_memories_down]]
+
+        if len(xl_memories) > 0 and self.shift_xl_memories_down > 0:
+            xl_memories = [*xl_memories[self.shift_xl_memories_down:], *xl_memories[:self.shift_xl_memories_down]]
 
         # iterate through the memories in order of the ascending layers that contain KNNAttention
 

@@ -58,7 +58,9 @@ model = MemorizingTransformer(
     clear_memories_on_sos_token_id = 1,
     intra_attn_values_gating = True,      # alternative gating for knn memory vs local memory, based on alphafold2 attention architecture
     xl_memory_layers = (2, 3, 4, 5),      # xl memory layers - (https://arxiv.org/abs/2007.03356 shows you do not need XL memory on all layers, just the latter ones) - if a KNNAttention layer ends up using XL memories, only the XL memories that will be discarded will be added to long term memory
-    xl_max_memories = 512                 # number of xl memories to keep
+    xl_max_memories = 512,                # number of xl memories to keep
+    shift_knn_memories_down = 1,          # let a layer look at the KNN memories this number of layers above
+    shift_xl_memories_down = 1,           # let a layer look at the XL memories this number of layers above, shown to enhance receptive field in ernie-doc paper
 )
 
 data = torch.randint(0, 20000, (2, 1024)) # mock data
@@ -140,5 +142,16 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
   author  = {Jack W. Rae and Ali Razavi},
   booktitle = {ACL},
   year    = {2020}
+}
+```
+
+```bibtxe
+@misc{ding2021erniedoc,
+    title   = {ERNIE-Doc: A Retrospective Long-Document Modeling Transformer},
+    author  = {Siyu Ding and Junyuan Shang and Shuohuan Wang and Yu Sun and Hao Tian and Hua Wu and Haifeng Wang},
+    year    = {2021},
+    eprint  = {2012.15688},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CL}
 }
 ```
