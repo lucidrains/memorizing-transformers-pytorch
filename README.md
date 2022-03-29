@@ -102,6 +102,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
+- [ ] in knn memory class, store how many times the memory was retrieved as well as the last retrieval time and creation time - offer a way for researchers to plugin modular forgetting mechanism as a function of that state
 - [ ] enwik8 demo
 
 ## Citations
