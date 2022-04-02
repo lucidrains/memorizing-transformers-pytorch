@@ -15,6 +15,18 @@ def cast_list(val):
 def check_shape(t, pattern, **kwargs):
     return rearrange(t, f"{pattern} -> {pattern}", **kwargs)
 
+def count_intersect(x, y):
+    # returns an array that shows how many times an element in x is contained in tensor y
+    return np.sum(rearrange(x, 'i -> i 1') == rearrange(y, 'j -> 1 j'), axis = -1)
+
+# logic for expiring memories
+# function takes in list of ids, which ranges from newest to oldest
+# and returns the list of ids that should be removed
+
+def expire_strategy_remove_oldest(ids, *, max_num_entries, num_hits):
+    ids_to_remove = ids[max_num_entries:]
+    return ids_to_remove
+
 # a wrapper around faiss IndexIVFFlat
 # taking care of expiring old keys automagically
 
@@ -24,8 +36,11 @@ class KNN():
         dim,
         max_num_entries,
         cap_num_entries = False,
-        use_gpu = False
+        use_gpu = False,
+        expire_memory_fn = expire_strategy_remove_oldest
     ):
+        assert callable(expire_memory_fn)
+
         nlist = math.floor(math.sqrt(max_num_entries))
         quantizer = faiss.IndexFlatIP(dim)
         index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
@@ -34,6 +49,7 @@ class KNN():
         self.index = index
         self.max_num_entries = max_num_entries
         self.cap_num_entries = cap_num_entries
+        self.expire_memory_fn = expire_memory_fn
 
         self.reset()
 
@@ -41,9 +57,8 @@ class KNN():
         del self.index
 
     def reset(self):
-        if self.cap_num_entries:
-            self.ids = np.empty((0,), dtype = np.int32)
-
+        self.ids = np.empty((0,), dtype = np.int32)
+        self.hits = np.empty((0,), dtype = np.int32)
         return self.index.reset()
 
     def train(self, x):
@@ -53,9 +68,17 @@ class KNN():
         if not self.index.is_trained:
             self.train(x)
 
-        if self.cap_num_entries:
-            self.ids = np.concatenate((ids, self.ids))
-            remove_ids = self.ids[self.max_num_entries:]
+        self.ids = np.concatenate((ids, self.ids))
+        self.hits = np.concatenate((np.zeros_like(ids), self.hits))
+
+        if self.cap_num_entries and len(self.ids) > self.max_num_entries:
+            remove_ids = self.expire_memory_fn(self.ids, max_num_entries = self.max_num_entries, num_hits = self.hits)
+            keep_mask = count_intersect(self.ids, remove_ids) == 0
+
+            self.ids = self.ids[keep_mask]
+            self.hits = self.hits[keep_mask]
+
+            assert len(self.ids) <= self.max_num_entries
             self.remove(remove_ids)
 
         return self.index.add_with_ids(x, ids = ids)
@@ -63,7 +86,14 @@ class KNN():
     def remove(self, ids):
         self.index.remove_ids(ids)
 
-    def search(self, x, topk, nprobe = 8, return_distances = False):
+    def search(
+        self,
+        x,
+        topk,
+        nprobe = 8,
+        return_distances = False,
+        increment_hits = False
+    ):
         if not self.index.is_trained:
             return np.full((x.shape[0], topk), -1)
 
@@ -71,6 +101,10 @@ class KNN():
 
         search_index.nprobe = nprobe
         distances, indices = search_index.search(x, k = topk)
+
+        if increment_hits:
+            hits = count_intersect(self.ids, rearrange(indices, '... -> (...)'))
+            self.hits += hits
 
         if return_distances:
             return indices, distances
@@ -87,7 +121,8 @@ class KNNMemory():
         max_memories = 16000,
         num_indices = 1,
         memmap_filename = './knn.memory.memmap',
-        knn_use_gpu = False
+        knn_use_gpu = False,
+        expire_memory_fn = expire_strategy_remove_oldest
     ):
         self.dim = dim
         self.num_indices = num_indices
@@ -96,7 +131,7 @@ class KNNMemory():
         self.db_offsets = np.zeros(num_indices, dtype = np.int32)
 
         self.db = np.memmap(memmap_filename, mode = 'w+', dtype = np.float32, shape = self.shape)
-        self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
+        self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True, expire_memory_fn = expire_memory_fn) for _ in range(num_indices)]
 
     def clear(self, indices = None):
         if not exists(indices):
@@ -129,7 +164,13 @@ class KNNMemory():
 
         self.db_offsets += num_memories
 
-    def search(self, queries, topk, nprobe = 8):
+    def search(
+        self,
+        queries,
+        topk,
+        nprobe = 8,
+        increment_hits = False
+    ):
         check_shape(queries, 'b n d', d = self.dim, b = self.num_indices)
 
         device = queries.device
@@ -139,7 +180,7 @@ class KNNMemory():
         all_key_values = []
 
         for ind, (query, knn) in enumerate(zip(queries, self.knns)):
-            indices = knn.search(query, topk, nprobe)
+            indices = knn.search(query, topk, nprobe, increment_hits = increment_hits)
             mask = indices !=  -1
             db_indices = np.where(mask, indices, 0)
 
