@@ -260,12 +260,8 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
-        knn_queries = rearrange(q, 'b h n d -> b (h n) d')
-
-        mem_kv, mem_mask = knn_memory.search(knn_queries, self.num_retrieved_memories)
-
-        mem_mask = rearrange(mem_mask, 'b (h i) j -> b h i j', h = h)
-        mem_k, mem_v = rearrange(mem_kv, 'b (h i) j kv d -> b h i j kv d', h = h).unbind(dim = -2)
+        mem_kv, mem_mask = knn_memory.search(q, self.num_retrieved_memories)
+        mem_k, mem_v = mem_kv.unbind(dim = -2)
 
         # use null key / value to protect against empty memory
 

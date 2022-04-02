@@ -3,7 +3,9 @@ import math
 import torch
 import faiss
 import numpy as np
+
 from einops import rearrange
+from memorizing_transformers_pytorch.utils import rearrange_with_dim_list
 
 # constants
 
@@ -175,7 +177,9 @@ class KNNMemory():
         nprobe = 8,
         increment_hits = False
     ):
-        check_shape(queries, 'b n d', d = self.dim, b = self.num_indices)
+        _, *prec_dims, _ = queries.shape
+        check_shape(queries, 'b ... d', d = self.dim, b = self.num_indices)
+        queries = rearrange(queries, 'b ... d -> b (...) d')
 
         device = queries.device
         queries = queries.detach().cpu().numpy()
@@ -196,6 +200,9 @@ class KNNMemory():
         all_masks = torch.stack(all_masks)
         all_key_values = torch.stack(all_key_values)
         all_key_values = all_key_values.masked_fill(~rearrange(all_masks, '... -> ... 1 1'), 0.)
+
+        all_key_values = rearrange_with_dim_list(all_key_values, 'b (...p) ... -> b ...p ...', p = prec_dims)
+        all_masks = rearrange_with_dim_list(all_masks, 'b (...p) ... -> b ...p ...', p = prec_dims)
 
         return all_key_values.to(device), all_masks.to(device)
 
