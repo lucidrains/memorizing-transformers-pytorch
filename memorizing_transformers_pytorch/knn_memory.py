@@ -30,7 +30,7 @@ def count_intersect(x, y):
 # function takes in list of ids, which ranges from newest to oldest
 # and returns the list of ids that should be removed
 
-def expire_strategy_remove_oldest(ids, *, max_num_entries, num_hits):
+def expire_strategy_remove_oldest(ids, *, max_num_entries, num_hits, ages):
     ids_to_remove = ids[max_num_entries:]
     return ids_to_remove
 
@@ -67,6 +67,7 @@ class KNN():
     def reset(self):
         self.ids = np.empty((0,), dtype = np.int32)
         self.hits = np.empty((0,), dtype = np.int32)
+        self.age_num_iterations = np.empty((0,), dtype = np.int32)
         return self.index.reset()
 
     def train(self, x):
@@ -78,13 +79,22 @@ class KNN():
 
         self.ids = np.concatenate((ids, self.ids))
         self.hits = np.concatenate((np.zeros_like(ids), self.hits))
+        self.age_num_iterations = np.concatenate((np.zeros_like(ids), self.age_num_iterations))
 
         if self.cap_num_entries and len(self.ids) > self.max_num_entries:
-            remove_ids = self.expire_memory_fn(self.ids, max_num_entries = self.max_num_entries, num_hits = self.hits)
+
+            remove_ids = self.expire_memory_fn(
+                self.ids,
+                max_num_entries = self.max_num_entries,
+                num_hits = self.hits,
+                ages = self.age_num_iterations
+            )
+
             keep_mask = count_intersect(self.ids, remove_ids) == 0
 
             self.ids = self.ids[keep_mask]
             self.hits = self.hits[keep_mask]
+            self.age_num_iterations = self.age_num_iterations[keep_mask]
 
             assert len(self.ids) <= self.max_num_entries
             self.remove(remove_ids)
@@ -100,7 +110,8 @@ class KNN():
         topk,
         nprobe = 8,
         return_distances = False,
-        increment_hits = False
+        increment_hits = False,
+        increment_age = True
     ):
         if not self.index.is_trained:
             return np.full((x.shape[0], topk), -1)
@@ -111,6 +122,9 @@ class KNN():
         if increment_hits:
             hits = count_intersect(self.ids, rearrange(indices, '... -> (...)'))
             self.hits += hits
+
+        if increment_age:
+            self.age_num_iterations += 1
 
         if return_distances:
             return indices, distances
@@ -175,7 +189,8 @@ class KNNMemory():
         queries,
         topk,
         nprobe = 8,
-        increment_hits = False
+        increment_hits = False,
+        increment_age = True
     ):
         _, *prec_dims, _ = queries.shape
         check_shape(queries, 'b ... d', d = self.dim, b = self.num_indices)
@@ -188,7 +203,7 @@ class KNNMemory():
         all_key_values = []
 
         for ind, (query, knn) in enumerate(zip(queries, self.knns)):
-            indices = knn.search(query, topk, nprobe, increment_hits = increment_hits)
+            indices = knn.search(query, topk, nprobe, increment_hits = increment_hits, increment_age = increment_age)
             mask = indices !=  -1
             db_indices = np.where(mask, indices, 0)
 
