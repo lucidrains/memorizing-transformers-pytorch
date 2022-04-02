@@ -104,7 +104,8 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 - [x] in knn memory class, store how many times the memory was retrieved
 - [x] offer a way for researchers to plugin modular forgetting mechanism as a function of that state
-- [ ] store last retrieval time and creation time - figure out the best way to store datetime in numpy arrays, whether as unix time number or otherwise
+- [x] store age of each memory
+- [ ] store time (in search iterations) since last memory access (hit)
 - [ ] enwik8 demo
 
 ## Citations
