@@ -1,8 +1,13 @@
+import os
 import math
 import torch
 import faiss
 import numpy as np
 from einops import rearrange
+
+# constants
+
+FAISS_INDEX_GPU_ID = int(os.getenv('FAISS_INDEX_GPU_ID', 0))
 
 # helper functions
 
@@ -46,7 +51,8 @@ class KNN():
         index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
 
         self.use_gpu = use_gpu
-        self.index = index
+
+        self.index = faiss.index_cpu_to_gpu(faiss.StandardGpuResources(), FAISS_INDEX_GPU_ID, index) if use_gpu else index
         self.max_num_entries = max_num_entries
         self.cap_num_entries = cap_num_entries
         self.expire_memory_fn = expire_memory_fn
@@ -97,10 +103,8 @@ class KNN():
         if not self.index.is_trained:
             return np.full((x.shape[0], topk), -1)
 
-        search_index = faiss.index_cpu_to_all_gpus(self.index) if self.use_gpu else self.index
-
-        search_index.nprobe = nprobe
-        distances, indices = search_index.search(x, k = topk)
+        self.index.nprobe = nprobe
+        distances, indices = self.index.search(x, k = topk)
 
         if increment_hits:
             hits = count_intersect(self.ids, rearrange(indices, '... -> (...)'))
