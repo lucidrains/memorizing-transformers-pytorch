@@ -30,7 +30,14 @@ def count_intersect(x, y):
 # function takes in list of ids, which ranges from newest to oldest
 # and returns the list of ids that should be removed
 
-def expire_strategy_remove_oldest(ids, *, max_num_entries, num_hits, ages):
+def expire_strategy_remove_oldest(
+    ids,
+    *,
+    max_num_entries,
+    num_hits,
+    ages,
+    ages_since_last_hit
+):
     ids_to_remove = ids[max_num_entries:]
     return ids_to_remove
 
@@ -68,6 +75,7 @@ class KNN():
         self.ids = np.empty((0,), dtype = np.int32)
         self.hits = np.empty((0,), dtype = np.int32)
         self.age_num_iterations = np.empty((0,), dtype = np.int32)
+        self.ages_since_last_hit = np.empty((0,), dtype = np.int32)
         return self.index.reset()
 
     def train(self, x):
@@ -80,6 +88,7 @@ class KNN():
         self.ids = np.concatenate((ids, self.ids))
         self.hits = np.concatenate((np.zeros_like(ids), self.hits))
         self.age_num_iterations = np.concatenate((np.zeros_like(ids), self.age_num_iterations))
+        self.ages_since_last_hit = np.concatenate((np.zeros_like(ids), self.ages_since_last_hit))
 
         if self.cap_num_entries and len(self.ids) > self.max_num_entries:
 
@@ -87,7 +96,8 @@ class KNN():
                 self.ids,
                 max_num_entries = self.max_num_entries,
                 num_hits = self.hits,
-                ages = self.age_num_iterations
+                ages = self.age_num_iterations,
+                ages_since_last_hit = self.ages_since_last_hit
             )
 
             keep_mask = count_intersect(self.ids, remove_ids) == 0
@@ -95,6 +105,7 @@ class KNN():
             self.ids = self.ids[keep_mask]
             self.hits = self.hits[keep_mask]
             self.age_num_iterations = self.age_num_iterations[keep_mask]
+            self.ages_since_last_hit = self.ages_since_last_hit[keep_mask]
 
             assert len(self.ids) <= self.max_num_entries
             self.remove(remove_ids)
@@ -122,6 +133,9 @@ class KNN():
         if increment_hits:
             hits = count_intersect(self.ids, rearrange(indices, '... -> (...)'))
             self.hits += hits
+
+            self.ages_since_last_hit += 1
+            self.ages_since_last_hit *= (hits == 0)
 
         if increment_age:
             self.age_num_iterations += 1
