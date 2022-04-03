@@ -332,7 +332,8 @@ class MemorizingTransformer(nn.Module):
         intra_attn_values_gating = False,
         xl_max_memories = 0,
         xl_memory_layers = None,
-        shift_xl_memories_down = 0.
+        shift_xl_memories_down = 0.,
+        memory_expiration_fn = None
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
@@ -366,6 +367,7 @@ class MemorizingTransformer(nn.Module):
         self.num_memory_layers = len(memorizing_layers)
 
         self.knn_use_gpu = knn_use_gpu
+        self.memory_expiration_fn = memory_expiration_fn
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
 
         # relative positional bias
@@ -414,7 +416,7 @@ class MemorizingTransformer(nn.Module):
         knn_memories_directory = default(knn_memories_directory, self.knn_memories_directory)
         memories_dir = Path(knn_memories_directory)
 
-        return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+        return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, expire_memory_fn = self.memory_expiration_fn, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
 
     @contextmanager
     def knn_memories_context(

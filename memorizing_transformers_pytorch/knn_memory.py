@@ -16,6 +16,9 @@ FAISS_INDEX_GPU_ID = int(os.getenv('FAISS_INDEX_GPU_ID', 0))
 def exists(val):
     return val is not None
 
+def default(val, d):
+    return val if exists(val) else d
+
 def cast_list(val):
     return val if isinstance(val, list) else [val]
 
@@ -53,6 +56,7 @@ class KNN():
         use_gpu = False,
         expire_memory_fn = expire_strategy_remove_oldest
     ):
+        expire_memory_fn = default(expire_memory_fn, expire_strategy_remove_oldest)
         assert callable(expire_memory_fn)
 
         nlist = math.floor(math.sqrt(max_num_entries))
@@ -69,7 +73,8 @@ class KNN():
         self.reset()
 
     def __del__(self):
-        del self.index
+        if hasattr(self, 'index'):
+            del self.index
 
     def reset(self):
         self.ids = np.empty((0,), dtype = np.int32)
@@ -203,7 +208,7 @@ class KNNMemory():
         queries,
         topk,
         nprobe = 8,
-        increment_hits = False,
+        increment_hits = True,
         increment_age = True
     ):
         _, *prec_dims, _ = queries.shape
@@ -236,6 +241,7 @@ class KNNMemory():
         return all_key_values.to(device), all_masks.to(device)
 
     def __del__(self):
-        for knn in self.knns:
-            del knn
+        if hasattr(self, 'knns'):
+            for knn in self.knns:
+                del knn
         del self.db
