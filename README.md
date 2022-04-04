@@ -1,6 +1,6 @@
 <img src="./diagram.png" width="500px"></img>
 
-## Memorizing Transformers - Pytorch
+## Memorizing Transformers - Pytorch (wip)
 
 Implementation of <a href="https://arxiv.org/abs/2203.08913">Memorizing Transformers</a> (ICLR 2022), attention net augmented with indexing and retrieval of memories using approximate nearest neighbors, in Pytorch
 
@@ -102,10 +102,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
-- [x] in knn memory class, store how many times the memory was retrieved
-- [x] offer a way for researchers to plugin modular forgetting mechanism as a function of that state
-- [x] store age of each memory
-- [x] store time (in search iterations) since last memory access (hit)
+- [ ] switch to ivfhnsw and just remember all memories
 - [ ] enwik8 demo
 
 ## Citations
