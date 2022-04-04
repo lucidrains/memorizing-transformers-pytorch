@@ -53,22 +53,16 @@ class KNN():
         dim,
         max_num_entries,
         cap_num_entries = False,
-        use_gpu = False,
-        expire_memory_fn = expire_strategy_remove_oldest
+        M = 15,
+        use_gpu = False
     ):
-        expire_memory_fn = default(expire_memory_fn, expire_strategy_remove_oldest)
-        assert callable(expire_memory_fn)
-
-        nlist = math.floor(math.sqrt(max_num_entries))
-        quantizer = faiss.IndexFlatIP(dim)
-        index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
-
+        index = faiss.IndexHNSWFlat(dim, M, faiss.METRIC_INNER_PRODUCT)
         self.use_gpu = use_gpu
 
         self.index = faiss.index_cpu_to_gpu(faiss.StandardGpuResources(), FAISS_INDEX_GPU_ID, index) if use_gpu else index
         self.max_num_entries = max_num_entries
         self.cap_num_entries = cap_num_entries
-        self.expire_memory_fn = expire_memory_fn
+        self.is_trained = False
 
         self.reset()
 
@@ -81,13 +75,15 @@ class KNN():
         self.hits = np.empty((0,), dtype = np.int32)
         self.age_num_iterations = np.empty((0,), dtype = np.int32)
         self.ages_since_last_hit = np.empty((0,), dtype = np.int32)
-        return self.index.reset()
+        self.index.reset()
+        self.is_trained = False
 
     def train(self, x):
-        return self.index.train(x)
+        self.index.train(x)
+        self.is_trained = True
 
     def add(self, x, ids):
-        if not self.index.is_trained:
+        if not self.is_trained:
             self.train(x)
 
         self.ids = np.concatenate((ids, self.ids))
@@ -96,29 +92,9 @@ class KNN():
         self.ages_since_last_hit = np.concatenate((np.zeros_like(ids), self.ages_since_last_hit))
 
         if self.cap_num_entries and len(self.ids) > self.max_num_entries:
+            self.reset()
 
-            remove_ids = self.expire_memory_fn(
-                self.ids,
-                max_num_entries = self.max_num_entries,
-                num_hits = self.hits,
-                ages = self.age_num_iterations,
-                ages_since_last_hit = self.ages_since_last_hit
-            )
-
-            keep_mask = count_intersect(self.ids, remove_ids) == 0
-
-            self.ids = self.ids[keep_mask]
-            self.hits = self.hits[keep_mask]
-            self.age_num_iterations = self.age_num_iterations[keep_mask]
-            self.ages_since_last_hit = self.ages_since_last_hit[keep_mask]
-
-            assert len(self.ids) <= self.max_num_entries
-            self.remove(remove_ids)
-
-        return self.index.add_with_ids(x, ids = ids)
-
-    def remove(self, ids):
-        self.index.remove_ids(ids)
+        return self.index.add(x)
 
     def search(
         self,
@@ -129,10 +105,9 @@ class KNN():
         increment_hits = False,
         increment_age = True
     ):
-        if not self.index.is_trained:
+        if not self.is_trained:
             return np.full((x.shape[0], topk), -1)
 
-        self.index.nprobe = nprobe
         distances, indices = self.index.search(x, k = topk)
 
         if increment_hits:
@@ -160,8 +135,7 @@ class KNNMemory():
         max_memories = 16000,
         num_indices = 1,
         memmap_filename = './knn.memory.memmap',
-        knn_use_gpu = False,
-        expire_memory_fn = expire_strategy_remove_oldest
+        knn_use_gpu = False
     ):
         self.dim = dim
         self.num_indices = num_indices
@@ -170,7 +144,7 @@ class KNNMemory():
         self.db_offsets = np.zeros(num_indices, dtype = np.int32)
 
         self.db = np.memmap(memmap_filename, mode = 'w+', dtype = np.float32, shape = self.shape)
-        self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True, expire_memory_fn = expire_memory_fn) for _ in range(num_indices)]
+        self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
 
     def clear(self, indices = None):
         if not exists(indices):
