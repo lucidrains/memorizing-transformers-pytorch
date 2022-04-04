@@ -22,7 +22,7 @@ model = MemorizingTransformer(
     dim_head = 64,                      # dimension per attention head
     depth = 8,                          # number of layers
     memorizing_layers = (4, 5),         # which layers to have ANN memories
-    max_knn_memories = 64000,           # maximum ANN memories to keep (oldest ones will be discarded)
+    max_knn_memories = 64000,           # maximum ANN memories to keep (once it hits this capacity, it will be reset for now, due to limitations in faiss' ability to remove entries)
     num_retrieved_memories = 32,        # number of ANN memories to retrieve
     clear_memories_on_sos_token_id = 1, # clear passed in ANN memories automatically for batch indices which contain this specified SOS token id - otherwise, you can also manually iterate through the ANN memories and clear the indices before the next iteration
 )
