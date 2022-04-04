@@ -325,6 +325,7 @@ class MemorizingTransformer(nn.Module):
         max_knn_memories = 250000,
         num_retrieved_memories = 32,
         clear_memories_on_sos_token_id = None,
+        clear_memories_on_eos_token_id = None,
         knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
         knn_use_gpu = False,
         shift_knn_memories_down = 0.,
@@ -367,6 +368,7 @@ class MemorizingTransformer(nn.Module):
 
         self.knn_use_gpu = knn_use_gpu
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
+        self.clear_memories_on_eos_token_id = clear_memories_on_eos_token_id
 
         # relative positional bias
 
@@ -426,6 +428,20 @@ class MemorizingTransformer(nn.Module):
         for memory in knn_memories:
             del memory
 
+    def clear_memory(self, x, token_id):
+        """ clears the KNN memories based on if the batch row contains the specified token id """
+        """ for auto-clearing KNN memories based on start and end of strings """
+
+        clear_memory = (x == token_id).any(dim = -1)
+        batch_indices, _ = clear_memory.nonzero(as_tuple = True)
+        batch_indices_to_clear = batch_indices.tolist()
+
+        if len(batch_indices_to_clear) == 0:
+            return
+
+        for knn_memory in knn_memories:
+            knn_memory.clear(batch_indices_to_clear)
+
     def forward(
         self,
         x,
@@ -445,13 +461,7 @@ class MemorizingTransformer(nn.Module):
         # do the appropriate logic
 
         if exists(self.clear_memories_on_sos_token_id):
-            clear_memory = (x == self.clear_memories_on_sos_token_id).any(dim = -1)
-            batch_indices, _ = clear_memory.nonzero(as_tuple = True)
-            batch_indices_to_clear = batch_indices.tolist()
-
-            if len(batch_indices_to_clear) > 0:
-                for knn_memory in knn_memories:
-                    knn_memory.clear(batch_indices_to_clear)
+            self.clear_memory(x, self.clear_memories_on_sos_token_id)
 
         # handle XL memories
 
@@ -513,6 +523,13 @@ class MemorizingTransformer(nn.Module):
         # to logits
 
         logits = self.to_logits(x)
+
+        # auto-clear KNN memories on end of string token
+
+        if exists(self.clear_memories_on_eos_token_id):
+            self.clear_memory(x, self.clear_memories_on_eos_token_id)
+
+        # for training
 
         if not exists(labels):
             if exists(new_xl_memories):
