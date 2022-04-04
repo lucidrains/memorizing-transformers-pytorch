@@ -22,7 +22,7 @@ model = MemorizingTransformer(
     dim_head = 64,                      # dimension per attention head
     depth = 8,                          # number of layers
     memorizing_layers = (4, 5),         # which layers to have ANN memories
-    max_knn_memories = 2048,            # maximum ANN memories to keep (oldest ones will be discarded)
+    max_knn_memories = 64000,           # maximum ANN memories to keep (oldest ones will be discarded)
     num_retrieved_memories = 32,        # number of ANN memories to retrieve
     clear_memories_on_sos_token_id = 1, # clear passed in ANN memories automatically for batch indices which contain this specified SOS token id - otherwise, you can also manually iterate through the ANN memories and clear the indices before the next iteration
 )
@@ -53,7 +53,7 @@ model = MemorizingTransformer(
     dim = 512,
     depth = 8,
     memorizing_layers = (4, 5),
-    max_knn_memories = 16000,
+    max_knn_memories = 64000,
     num_retrieved_memories = 32,
     clear_memories_on_sos_token_id = 1,
     intra_attn_values_gating = True,      # alternative gating for knn memory vs local memory, based on alphafold2 attention architecture
@@ -85,7 +85,7 @@ from memorizing_transformers_pytorch import KNNMemory
 
 memory = KNNMemory(
     dim = 64,                   # dimension of key / values
-    max_memories = 1024,        # maximum number of memories to keep (will throw out the oldest memories for now if it overfills)
+    max_memories = 64000,       # maximum number of memories to keep (will throw out the oldest memories for now if it overfills)
     num_indices = 2             # this should be equivalent to batch dimension, as each batch keeps track of its own memories, expiring when it sees a new document
 )
 
@@ -103,6 +103,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 ## Todo
 
 - [x] switch to ivfhnsw and just remember all memories
+- [ ] figure out how to deal with memories efficiently once capacity has been hit
 - [ ] enwik8 demo
 
 ## Citations
