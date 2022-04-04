@@ -102,7 +102,7 @@ key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 
 ## Todo
 
-- [ ] switch to ivfhnsw and just remember all memories
+- [x] switch to ivfhnsw and just remember all memories
 - [ ] enwik8 demo
 
 ## Citations

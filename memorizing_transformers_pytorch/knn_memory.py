@@ -29,21 +29,6 @@ def count_intersect(x, y):
     # returns an array that shows how many times an element in x is contained in tensor y
     return np.sum(rearrange(x, 'i -> i 1') == rearrange(y, 'j -> 1 j'), axis = -1)
 
-# logic for expiring memories
-# function takes in list of ids, which ranges from newest to oldest
-# and returns the list of ids that should be removed
-
-def expire_strategy_remove_oldest(
-    ids,
-    *,
-    max_num_entries,
-    num_hits,
-    ages,
-    ages_since_last_hit
-):
-    ids_to_remove = ids[max_num_entries:]
-    return ids_to_remove
-
 # a wrapper around faiss IndexIVFFlat
 # taking care of expiring old keys automagically
 
