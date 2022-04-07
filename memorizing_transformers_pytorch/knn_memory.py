@@ -131,17 +131,17 @@ class KNNMemory():
         self.db = np.memmap(memmap_filename, mode = 'w+', dtype = np.float32, shape = self.shape)
         self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
 
-    def clear(self, indices = None):
-        if not exists(indices):
-            indices = list(range(self.num_indices))
+    def clear(self, batch_indices = None):
+        if not exists(batch_indices):
+            batch_indices = list(range(self.num_indices))
 
-        indices = cast_list(indices)
+        batch_indices = cast_list(batch_indices)
 
-        for index in indices:
+        for index in batch_indices:
             knn = self.knns[index]
             knn.reset()
 
-        self.db_offsets[indices] = 0
+        self.db_offsets[batch_indices] = 0
 
     def add(self, memories):
         check_shape(memories, 'b n kv d', d = self.dim, kv = 2, b = self.num_indices)
@@ -204,3 +204,26 @@ class KNNMemory():
             for knn in self.knns:
                 del knn
         del self.db
+
+# extends list with some extra methods for collections of KNN memories
+# specifically, one can do memories[3:5].clear_memory()
+
+class KNNMemoryList(list):
+    def __getitem__(self, indices):
+        sub_memory_list = super().__getitem__(indices)
+
+        if not isinstance(indices, slice):
+            return sub_memory_list
+
+        return self.__class__(sub_memory_list)
+
+    def clear_memory(
+        self,
+        batch_indices = None,
+        memory_indices = None
+    ):
+        memory_indices = default(memory_indices, tuple(range(len(self))))
+
+        for memory_index in memory_indices:
+            memory = self[memory_index]
+            memory.clear(batch_indices)

@@ -10,7 +10,7 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-from memorizing_transformers_pytorch.knn_memory import KNNMemory
+from memorizing_transformers_pytorch.knn_memory import KNNMemory, KNNMemoryList
 
 # constants
 
@@ -416,7 +416,7 @@ class MemorizingTransformer(nn.Module):
         knn_memories_directory = default(knn_memories_directory, self.knn_memories_directory)
         memories_dir = Path(knn_memories_directory)
 
-        return [KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)]
+        return KNNMemoryList([KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)])
 
     @contextmanager
     def knn_memories_context(
@@ -439,8 +439,7 @@ class MemorizingTransformer(nn.Module):
         if len(batch_indices_to_clear) == 0:
             return
 
-        for knn_memory in knn_memories:
-            knn_memory.clear(batch_indices_to_clear)
+        knn_memories.clear_memory(batch_indices_to_clear)
 
     def forward(
         self,
