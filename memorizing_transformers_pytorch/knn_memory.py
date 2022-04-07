@@ -3,6 +3,8 @@ import math
 import torch
 import faiss
 import numpy as np
+from pathlib import Path
+from functools import wraps
 
 from einops import rearrange
 from memorizing_transformers_pytorch.utils import rearrange_with_dim_list
@@ -10,6 +12,8 @@ from memorizing_transformers_pytorch.utils import rearrange_with_dim_list
 # constants
 
 FAISS_INDEX_GPU_ID = int(os.getenv('FAISS_INDEX_GPU_ID', 0))
+
+DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY = './.tmp/knn.memories'
 
 # helper functions
 
@@ -209,6 +213,21 @@ class KNNMemory():
 # specifically, one can do memories[3:5].clear_memory()
 
 class KNNMemoryList(list):
+    @classmethod
+    def create_memories(
+        self,
+        *,
+        batch_size,
+        num_memory_layers,
+        memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
+    ):
+        memories_path = Path(memories_directory)
+        memories_path.mkdir(exist_ok = True, parents = True)
+
+        def inner(*args, **kwargs):
+            return self([KNNMemory(*args, num_indices = batch_size, memmap_filename = str(memories_path / f'knn.memory.layer.{ind + 1}.memmap'), **kwargs) for ind in range(num_memory_layers)])
+        return inner
+
     def __getitem__(self, indices):
         sub_memory_list = super().__getitem__(indices)
 

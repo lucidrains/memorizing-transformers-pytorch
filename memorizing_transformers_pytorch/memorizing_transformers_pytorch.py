@@ -10,11 +10,7 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-from memorizing_transformers_pytorch.knn_memory import KNNMemory, KNNMemoryList
-
-# constants
-
-DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY = './.tmp/knn.memories'
+from memorizing_transformers_pytorch.knn_memory import KNNMemory, KNNMemoryList, DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
 
 # helper functions
 
@@ -407,16 +403,24 @@ class MemorizingTransformer(nn.Module):
             nn.Linear(dim, num_tokens)
         )
 
+        # knn memories init
+
+        self.knn_mem_kwargs = dict(
+            dim = self.dim_head,
+            max_memories = self.max_knn_memories,
+            knn_use_gpu = self.knn_use_gpu,
+        )
+
     def create_knn_memories(
         self,
         *,
-        batch_size,
-        knn_memories_directory = None
+        batch_size
     ):
-        knn_memories_directory = default(knn_memories_directory, self.knn_memories_directory)
-        memories_dir = Path(knn_memories_directory)
-
-        return KNNMemoryList([KNNMemory(dim = self.dim_head, max_memories = self.max_knn_memories, knn_use_gpu = self.knn_use_gpu, num_indices = batch_size, memmap_filename = str(memories_dir / f'knn.memory.layer.{ind + 1}.memmap')) for ind in range(self.num_memory_layers)])
+        return KNNMemoryList.create_memories(
+            batch_size = batch_size,
+            num_memory_layers = self.num_memory_layers,
+            memories_directory = self.knn_memories_directory
+        )(**self.knn_mem_kwargs)
 
     @contextmanager
     def knn_memories_context(
