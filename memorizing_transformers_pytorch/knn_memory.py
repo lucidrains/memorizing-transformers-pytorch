@@ -217,6 +217,18 @@ class KNNMemoryList(list):
 
         return self.__class__(sub_memory_list)
 
+    def split(self, n):
+        num_memories = len(self)
+        num_groups = math.ceil(num_memories / n)
+        split_arr = []
+
+        for ind in range(num_groups):
+            mem_range = slice(ind * n, (ind * n) + n)
+            mems = self[mem_range]
+            split_arr.append(mems)
+
+        return split_arr
+
     def clear_memory(
         self,
         batch_indices = None,
