@@ -10,7 +10,7 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-from memorizing_transformers_pytorch.knn_memory import KNNMemory, KNNMemoryList, DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
+from memorizing_transformers_pytorch.knn_memory import KNNMemoryList, DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
 
 # helper functions
 
