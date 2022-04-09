@@ -112,7 +112,8 @@ $ python train.py
 
 - [x] switch to ivfhnsw and just remember all memories
 - [x] enwik8 demo
-- [ ] setup text generation + validation for enwik8
+- [x] validation for enwik8
+- [ ] setup text generation with memories
 - [ ] think about how to approach gradient accumulation for knn memories
 - [ ] figure out how to deal with memories efficiently once capacity has been hit
 

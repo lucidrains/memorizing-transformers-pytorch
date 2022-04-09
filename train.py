@@ -76,6 +76,8 @@ class TextSamplerDataset(Dataset):
 
 train_dataset = TextSamplerDataset(data_train, SEQ_LEN * SEGMENTS)
 train_loader  = cycle(DataLoader(train_dataset, batch_size = BATCH_SIZE))
+valid_dataset = TextSamplerDataset(data_val, SEQ_LEN * SEGMENTS)
+valid_loader = cycle(DataLoader(valid_dataset, batch_size = BATCH_SIZE))
 
 # optimizer
 
@@ -88,7 +90,7 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval = 10., desc = 'training'):
 
     data = next(train_loader)
 
-    total_loss = 0.
+    train_loss = 0.
     with model.knn_memories_context(batch_size = BATCH_SIZE) as knn_memories:
         xl_memories = None    
         seq, labels = data[:, :-1], data[:, 1:]
@@ -101,12 +103,32 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval = 10., desc = 'training'):
                 xl_memories = xl_memories
             )
 
-            total_loss += loss.item()
-            (loss / SEGMENTS).backward()
+            train_loss += loss.item() / SEGMENTS
+            (loss / SEGMENTS).backward()    
 
-    total_loss /= SEGMENTS
-
-    print(f'training loss: {total_loss}')
+    print(f'training loss: {train_loss}')
     torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_CLIP_NORM)
     optim.step()
     optim.zero_grad()
+
+    if not (i % VALIDATE_EVERY):
+        model.eval()
+
+        valid_data = next(train_loader)
+        valid_loss = 0.
+
+        with torch.no_grad(), model.knn_memories_context(batch_size = BATCH_SIZE) as knn_memories:
+            xl_memories = None    
+            seq, labels = data[:, :-1], data[:, 1:]
+
+            for seq_segment, labels_segment in zip(seq.chunk(SEGMENTS, dim = -1), labels.chunk(SEGMENTS, dim = -1)):
+                loss, xl_memories = model(
+                    seq_segment,
+                    labels = labels_segment,
+                    knn_memories = knn_memories,
+                    xl_memories = xl_memories
+                )
+
+                valid_loss += loss.item() / SEGMENTS
+
+        print(f'valid loss: {valid_loss}')
