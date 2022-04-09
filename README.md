@@ -100,11 +100,21 @@ memory.add(torch.randn(2, 512, 2, 64))
 key_values, mask = memory.search(torch.randn(2, 512, 64), topk = 32)
 ```
 
+## Training
+
+Enwik8 training
+
+```bash
+$ python train.py
+```
+
 ## Todo
 
 - [x] switch to ivfhnsw and just remember all memories
+- [x] enwik8 demo
+- [ ] setup text generation + validation for enwik8
+- [ ] think about how to approach gradient accumulation for knn memories
 - [ ] figure out how to deal with memories efficiently once capacity has been hit
-- [ ] enwik8 demo
 
 ## Citations
 
