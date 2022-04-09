@@ -7,7 +7,7 @@ from pathlib import Path
 from functools import wraps
 
 from einops import rearrange
-from einops_exts import rearrange_with_anon_dims
+from einops_exts import rearrange_with_anon_dims, check_shape
 
 # constants
 
@@ -25,9 +25,6 @@ def default(val, d):
 
 def cast_list(val):
     return val if isinstance(val, list) else [val]
-
-def check_shape(t, pattern, **kwargs):
-    return rearrange(t, f"{pattern} -> {pattern}", **kwargs)
 
 def count_intersect(x, y):
     # returns an array that shows how many times an element in x is contained in tensor y
