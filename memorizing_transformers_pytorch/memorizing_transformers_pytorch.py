@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch import nn, einsum
 
 from einops import rearrange, repeat
+from einops_exts import repeat_many
 from einops.layers.torch import Rearrange
 
 from memorizing_transformers_pytorch.knn_memory import KNNMemoryList, DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY
@@ -261,7 +262,7 @@ class KNNAttention(nn.Module):
 
         # use null key / value to protect against empty memory
 
-        null_k, null_v = map(lambda t: repeat(t, 'd -> b h i 1 d', b = b, h = h, i = n), (self.null_k, self.null_v))
+        null_k, null_v = repeat_many((self.null_k, self.null_v), 'd -> b h i 1 d', b = b, h = h, i = n)
 
         mem_k = torch.cat((null_k, mem_k), dim = -2)
         mem_v = torch.cat((null_v, mem_v), dim = -2)
