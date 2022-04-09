@@ -429,8 +429,7 @@ class MemorizingTransformer(nn.Module):
     ):
         knn_memories = self.create_knn_memories(**kwargs)
         yield knn_memories
-        for memory in knn_memories:
-            del memory
+        knn_memories.cleanup()
 
     def clear_memory(self, x, token_id):
         """ clears the KNN memories based on if the batch row contains the specified token id """

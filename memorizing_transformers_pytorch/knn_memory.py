@@ -213,6 +213,10 @@ class KNNMemory():
 # specifically, one can do memories[3:5].clear_memory()
 
 class KNNMemoryList(list):
+    def cleanup(self):
+        for memory in self:
+            del memory
+
     @classmethod
     def create_memories(
         self,
