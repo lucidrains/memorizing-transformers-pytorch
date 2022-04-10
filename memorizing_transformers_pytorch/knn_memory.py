@@ -34,7 +34,7 @@ def all_el_unique(arr):
 @contextmanager
 def multi_context(*cms):
     with ExitStack() as stack:
-        yield [stack.enter_context(cls()) for cls in cms]
+        yield [stack.enter_context(cls) for cls in cms]
 
 def count_intersect(x, y):
     # returns an array that shows how many times an element in x is contained in tensor y
@@ -258,6 +258,7 @@ class KNNMemoryList(list):
             return self([KNNMemory(*args, num_indices = batch_size, memmap_filename = str(memories_path / f'knn.memory.layer.{ind + 1}.memmap'), **kwargs) for ind in range(num_memory_layers)])
         return inner
 
+    @contextmanager
     def at_batch_indices(
         self,
         indices
