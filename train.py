@@ -75,9 +75,9 @@ class TextSamplerDataset(Dataset):
 # dataset and dataloader
 
 train_dataset = TextSamplerDataset(data_train, SEQ_LEN * SEGMENTS)
-train_loader  = cycle(DataLoader(train_dataset, batch_size = BATCH_SIZE))
+train_loader  = cycle(DataLoader(train_dataset, batch_size = BATCH_SIZE, drop_last = True))
 valid_dataset = TextSamplerDataset(data_val, SEQ_LEN * SEGMENTS)
-valid_loader = cycle(DataLoader(valid_dataset, batch_size = BATCH_SIZE))
+valid_loader = cycle(DataLoader(valid_dataset, batch_size = BATCH_SIZE, drop_last = True))
 
 # optimizer
 
