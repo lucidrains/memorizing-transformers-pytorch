@@ -9,8 +9,6 @@ import torch.optim as optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from einops import rearrange
-
 # constants
 
 NUM_BATCHES = int(1e5)
