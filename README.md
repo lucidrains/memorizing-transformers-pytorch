@@ -116,6 +116,7 @@ $ python train.py
 - [x] solve gradient accumulation problem by offering some way to scope reads and writes to knn memories with another indices array
 - [ ] setup text generation with memories
 - [ ] figure out how to deal with memories efficiently once capacity has been hit
+- [ ] try to speed up reading and writing to knn memories collection with multiprocessing
 
 ## Citations
 
