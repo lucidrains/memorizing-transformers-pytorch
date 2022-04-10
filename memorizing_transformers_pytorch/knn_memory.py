@@ -6,6 +6,8 @@ import numpy as np
 from pathlib import Path
 from functools import wraps
 
+from contextlib import ExitStack, contextmanager
+
 from einops import rearrange
 from einops_exts import rearrange_with_anon_dims, check_shape
 
@@ -25,6 +27,14 @@ def default(val, d):
 
 def cast_list(val):
     return val if isinstance(val, list) else [val]
+
+def all_el_unique(arr):
+    return len(set(arr)) == len(arr)
+
+@contextmanager
+def multi_context(*cms):
+    with ExitStack() as stack:
+        yield [stack.enter_context(cls()) for cls in cms]
 
 def count_intersect(x, y):
     # returns an array that shows how many times an element in x is contained in tensor y
@@ -125,12 +135,27 @@ class KNNMemory():
     ):
         self.dim = dim
         self.num_indices = num_indices
+        self.scoped_indices = list(range(num_indices))
+
         self.max_memories = max_memories
         self.shape = (num_indices, max_memories, 2, dim)
         self.db_offsets = np.zeros(num_indices, dtype = np.int32)
 
         self.db = np.memmap(memmap_filename, mode = 'w+', dtype = np.float32, shape = self.shape)
         self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
+    
+    def set_scoped_indices(self, indices):
+        indices = list(indices)
+        assert all_el_unique(indices), f'all scoped batch indices must be unique, received: {indices}'
+        assert all([0 <= i < self.num_indices for i in indices]), f'each batch index must be between 0 and less than {self.num_indices}: received {indices}'
+        self.scoped_indices = indices
+
+    @contextmanager
+    def at_batch_indices(self, indices):
+        prev_indices = self.scoped_indices
+        self.set_scoped_indices(indices)
+        yield self
+        self.set_scoped_indices(prev_indices)
 
     def clear(self, batch_indices = None):
         if not exists(batch_indices):
@@ -145,7 +170,7 @@ class KNNMemory():
         self.db_offsets[batch_indices] = 0
 
     def add(self, memories):
-        check_shape(memories, 'b n kv d', d = self.dim, kv = 2, b = self.num_indices)
+        check_shape(memories, 'b n kv d', d = self.dim, kv = 2, b = len(self.scoped_indices))
 
         memories = memories.detach().cpu().numpy()
         memories = memories[:, -self.max_memories:]
@@ -154,11 +179,14 @@ class KNNMemory():
         knn_insert_ids = np.arange(num_memories)
         keys = np.ascontiguousarray(memories[..., 0, :])
 
-        for key, db_offset, knn in zip(keys, self.db_offsets, self.knns):
+        for key, index in zip(keys, self.scoped_indices):
+            db_offset = self.db_offsets[index]
+            knn = self.knns[index]
+
             knn.add(key, ids = knn_insert_ids + db_offset)
 
-        add_indices = (rearrange(np.arange(num_memories), 'j -> 1 j') + rearrange(self.db_offsets, 'i -> i 1')) % self.max_memories
-        self.db[rearrange(np.arange(self.num_indices), 'i -> i 1'), add_indices] = memories
+        add_indices = (rearrange(np.arange(num_memories), 'j -> 1 j') + rearrange(self.db_offsets[list(self.scoped_indices)], 'i -> i 1')) % self.max_memories
+        self.db[rearrange(np.array(self.scoped_indices), 'i -> i 1'), add_indices] = memories
         self.db.flush()
 
         self.db_offsets += num_memories
@@ -172,7 +200,7 @@ class KNNMemory():
         increment_age = True
     ):
         _, *prec_dims, _ = queries.shape
-        check_shape(queries, 'b ... d', d = self.dim, b = self.num_indices)
+        check_shape(queries, 'b ... d', d = self.dim, b = len(self.scoped_indices))
         queries = rearrange(queries, 'b ... d -> b (...) d')
 
         device = queries.device
@@ -181,14 +209,16 @@ class KNNMemory():
         all_masks = []
         all_key_values = []
 
-        for ind, (query, knn) in enumerate(zip(queries, self.knns)):
+        for query, index in zip(queries, self.scoped_indices):
+            knn = self.knns[index]
+
             indices = knn.search(query, topk, nprobe, increment_hits = increment_hits, increment_age = increment_age)
             mask = indices !=  -1
             db_indices = np.where(mask, indices, 0)
 
             all_masks.append(torch.from_numpy(mask))
 
-            key_values = self.db[ind, db_indices % self.max_memories]
+            key_values = self.db[index, db_indices % self.max_memories]
             all_key_values.append(torch.from_numpy(key_values))
 
         all_masks = torch.stack(all_masks)
@@ -207,7 +237,6 @@ class KNNMemory():
         del self.db
 
 # extends list with some extra methods for collections of KNN memories
-# specifically, one can do memories[3:5].clear_memory()
 
 class KNNMemoryList(list):
     def cleanup(self):
@@ -229,13 +258,13 @@ class KNNMemoryList(list):
             return self([KNNMemory(*args, num_indices = batch_size, memmap_filename = str(memories_path / f'knn.memory.layer.{ind + 1}.memmap'), **kwargs) for ind in range(num_memory_layers)])
         return inner
 
-    def __getitem__(self, indices):
-        sub_memory_list = super().__getitem__(indices)
-
-        if not isinstance(indices, slice):
-            return sub_memory_list
-
-        return self.__class__(sub_memory_list)
+    def at_batch_indices(
+        self,
+        indices
+    ):
+        knn_batch_indices_contexts = [memory.at_batch_indices(indices) for memory in self]
+        with multi_context(*knn_batch_indices_contexts):
+            yield
 
     def clear_memory(
         self,

@@ -113,9 +113,8 @@ $ python train.py
 - [x] switch to ivfhnsw and just remember all memories
 - [x] enwik8 demo
 - [x] validation for enwik8
+- [x] solve gradient accumulation problem by offering some way to scope reads and writes to knn memories with another indices array
 - [ ] setup text generation with memories
-- [ ] solve gradient accumulation problem by offering some way to scope reads and writes to knn memories with another indices array
-- [ ] think about how to approach gradient accumulation for knn memories
 - [ ] figure out how to deal with memories efficiently once capacity has been hit
 
 ## Citations
