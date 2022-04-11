@@ -194,10 +194,11 @@ class KNNMemory():
 
         # use joblib to insert new key / value memories into faiss index
 
-        def process(knn, key, db_offset):
+        @delayed
+        def knn_add(knn, key, db_offset):
             knn.add(key, ids = knn_insert_ids + db_offset)
 
-        Parallel(n_jobs = self.n_jobs)(delayed(process)(*args) for args in zip(knns, keys, db_offsets))
+        Parallel(n_jobs = self.n_jobs)(knn_add(*args) for args in zip(knns, keys, db_offsets))
 
         # add the new memories to the memmap "database"
 
@@ -225,16 +226,26 @@ class KNNMemory():
         all_masks = []
         all_key_values = []
 
-        for query, index in zip(queries, self.scoped_indices):
-            knn = self.knns[index]
+        knns = [self.knns[i] for i in self.scoped_indices]
 
-            indices = knn.search(query, topk, nprobe, increment_hits = increment_hits, increment_age = increment_age)
+        # parallelize faiss search
+
+        @delayed
+        def knn_search(knn, query):
+            return knn.search(query, topk, nprobe, increment_hits = increment_hits, increment_age = increment_age)
+
+        fetched_indices = Parallel(n_jobs = self.n_jobs)(knn_search(*args) for args in zip(knns, queries))
+
+        # get all the memory key / values from memmap 'database'
+        # todo - remove for loop below
+
+        for batch_index, indices in zip(self.scoped_indices, fetched_indices):
             mask = indices !=  -1
             db_indices = np.where(mask, indices, 0)
 
             all_masks.append(torch.from_numpy(mask))
 
-            key_values = self.db[index, db_indices % self.max_memories]
+            key_values = self.db[batch_index, db_indices % self.max_memories]
             all_key_values.append(torch.from_numpy(key_values))
 
         all_masks = torch.stack(all_masks)
