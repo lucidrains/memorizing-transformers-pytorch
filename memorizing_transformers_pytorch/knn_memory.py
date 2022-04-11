@@ -11,6 +11,10 @@ from contextlib import ExitStack, contextmanager
 from einops import rearrange
 from einops_exts import rearrange_with_anon_dims, check_shape
 
+# multiprocessing
+
+from joblib import Parallel, delayed, cpu_count
+
 # constants
 
 FAISS_INDEX_GPU_ID = int(os.getenv('FAISS_INDEX_GPU_ID', 0))
@@ -131,7 +135,8 @@ class KNNMemory():
         max_memories = 16000,
         num_indices = 1,
         memmap_filename = './knn.memory.memmap',
-        knn_use_gpu = False
+        knn_use_gpu = False,
+        multiprocessing = True
     ):
         self.dim = dim
         self.num_indices = num_indices
@@ -144,6 +149,8 @@ class KNNMemory():
         self.db = np.memmap(memmap_filename, mode = 'w+', dtype = np.float32, shape = self.shape)
         self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
     
+        self.n_jobs = cpu_count() if multiprocessing else 1
+
     def set_scoped_indices(self, indices):
         indices = list(indices)
         assert all_el_unique(indices), f'all scoped batch indices must be unique, received: {indices}'
@@ -177,13 +184,19 @@ class KNNMemory():
         num_memories = memories.shape[1]
 
         knn_insert_ids = np.arange(num_memories)
+
         keys = np.ascontiguousarray(memories[..., 0, :])
+        knns = [self.knns[i] for i in self.scoped_indices]
+        db_offsets = [self.db_offsets[i] for i in self.scoped_indices]
 
-        for key, index in zip(keys, self.scoped_indices):
-            db_offset = self.db_offsets[index]
-            knn = self.knns[index]
+        # use joblib to insert new key / value memories into faiss index
 
+        def process(knn, key, db_offset):
             knn.add(key, ids = knn_insert_ids + db_offset)
+
+        Parallel(n_jobs = self.n_jobs)(delayed(process)(*args) for args in zip(knns, keys, db_offsets))
+
+        # add the new memories to the memmap "database"
 
         add_indices = (rearrange(np.arange(num_memories), 'j -> 1 j') + rearrange(self.db_offsets[list(self.scoped_indices)], 'i -> i 1')) % self.max_memories
         self.db[rearrange(np.array(self.scoped_indices), 'i -> i 1'), add_indices] = memories
