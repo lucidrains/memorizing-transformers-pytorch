@@ -181,7 +181,6 @@ class KNNAttention(nn.Module):
         dim_head = 64,
         dropout = 0.,
         num_retrieved_memories = 32,
-        intra_attn_values_gating = False,
         xl_max_memories = 0.
     ):
         super().__init__()
@@ -202,20 +201,6 @@ class KNNAttention(nn.Module):
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim)
 
-        self.intra_attn_values_gating = intra_attn_values_gating
-
-        if not intra_attn_values_gating:
-            # this was the type of gating proposed in the paper
-            self.combine_attn_output_gate = nn.Parameter(torch.randn(heads, 1, 1))
-        else:
-            # proposed in alphafold2, where each token gates the aggregated values
-            # for memorizing transformers, this can be both the KNN memories and local values
-            self.values_gating = nn.Sequential(
-                nn.Linear(dim, inner_dim * 2, bias = False),
-                Rearrange('b n (h d) -> b h n d', h = heads),
-                nn.Sigmoid()
-            )
-
     def forward(
         self,
         x,
@@ -230,6 +215,11 @@ class KNNAttention(nn.Module):
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = h)
 
+        # dedicate half of the attention heads for local attention, and half for long term memory
+
+        half_heads = h // 2
+        local_q, mem_q = q[:, :half_heads], q[:, half_heads:]
+
         # handle xl memory
 
         if exists(xl_memory):
@@ -239,7 +229,7 @@ class KNNAttention(nn.Module):
 
         # calculate local attention
 
-        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
+        sim = einsum('b h i d, b j d -> b h i j', local_q, k) * self.scale
         i, j = sim.shape[-2:]
 
         if exists(rel_pos_bias):
@@ -257,32 +247,23 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
-        mem_kv, mem_mask = knn_memory.search(q, self.num_retrieved_memories)
+        mem_kv, mem_mask = knn_memory.search(mem_q, self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
         # use null key / value to protect against empty memory
 
-        null_k, null_v = repeat_many((self.null_k, self.null_v), 'd -> b h i 1 d', b = b, h = h, i = n)
+        null_k, null_v = repeat_many((self.null_k, self.null_v), 'd -> b h i 1 d', b = b, h = mem_q.shape[1], i = n)
 
         mem_k = torch.cat((null_k, mem_k), dim = -2)
         mem_v = torch.cat((null_v, mem_v), dim = -2)
         mem_mask = F.pad(mem_mask, (1, 0), value = True)
-        sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * self.scale
+        sim_mem = einsum('b h i d, b h i j d -> b h i j', mem_q, mem_k) * self.scale
 
         sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
         attn_mem = stable_softmax(sim_mem)
         attn_mem = self.knn_mem_dropout(attn_mem)
 
         mem_values = einsum('b h i j, b h i j d -> b h i d', attn_mem, mem_v)
-
-        # do head-wise gating, as described in paper
-
-        if self.intra_attn_values_gating:
-            local_gate, mem_gate = self.values_gating(x).chunk(2, dim = -1)
-            out = local_values * local_gate + mem_values * mem_gate
-        else:
-            gate = self.combine_attn_output_gate.sigmoid()
-            out = local_values * gate + mem_values * (1 - gate)
 
         # calculate new XL memories, as well as memories to be discarded
 
@@ -300,6 +281,7 @@ class KNNAttention(nn.Module):
 
         # combine heads and project out
 
+        out = torch.cat((mem_values, local_values), dim = 1)
         out = rearrange(out, 'b h n d -> b n (h d)')
 
         return self.to_out(out), new_xl_kv_memories
@@ -315,6 +297,7 @@ class MemorizingTransformer(nn.Module):
         depth,
         dim_head = 64,
         heads = 8,
+        knn_attn_heads = None,
         attn_dropout = 0.,
         ff_mult = 4,
         ff_dropout = 0.,
@@ -326,7 +309,6 @@ class MemorizingTransformer(nn.Module):
         knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
         shift_knn_memories_down = 0.,
         pad_id = 0,
-        intra_attn_values_gating = False,
         xl_max_memories = 0,
         xl_memory_layers = None,
         shift_xl_memories_down = 0.,
@@ -344,6 +326,8 @@ class MemorizingTransformer(nn.Module):
         memorizing_layers = tuple(filter(lambda i: i in valid_layers, memorizing_layers))
 
         self.dim_head = dim_head
+
+        knn_attn_heads = default(knn_attn_heads, heads)
 
         # xl memory hyperparameter
 
@@ -369,6 +353,7 @@ class MemorizingTransformer(nn.Module):
         # relative positional bias
 
         self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
+        self.knn_rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads // 2)
 
         # layers
 
@@ -381,7 +366,7 @@ class MemorizingTransformer(nn.Module):
             xl_max_memories_layer = 0 if not use_xl_memories else xl_max_memories
 
             if use_knn_attention:
-                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, intra_attn_values_gating = intra_attn_values_gating, xl_max_memories = xl_max_memories_layer)
+                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer)
             else:
                 attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, xl_max_memories = xl_max_memories_layer)
 
@@ -487,7 +472,9 @@ class MemorizingTransformer(nn.Module):
         # positional bias
 
         max_context_len = max([seq_len, *map(lambda t: (t.shape[-3] if exists(t) else 0) + seq_len, xl_memories)])
+
         rel_pos_bias = self.rel_pos_bias(seq_len, max_context_len, device = device)
+        knn_rel_pos_bias = self.knn_rel_pos_bias(seq_len, max_context_len, device = device)
 
         # keep track of new xl memories
 
@@ -504,7 +491,7 @@ class MemorizingTransformer(nn.Module):
             attn_kwargs = dict(rel_pos_bias = rel_pos_bias)
 
             if is_memorizing_layer:
-                attn_kwargs = {**attn_kwargs, 'knn_memory': next(knn_memories_iter), 'add_knn_memory': add_knn_memory}
+                attn_kwargs = {'rel_pos_bias': knn_rel_pos_bias, 'knn_memory': next(knn_memories_iter), 'add_knn_memory': add_knn_memory}
 
             if is_xl_memory_layer:
                 attn_kwargs = {**attn_kwargs, 'xl_memory': next(xl_memories_iter)}
