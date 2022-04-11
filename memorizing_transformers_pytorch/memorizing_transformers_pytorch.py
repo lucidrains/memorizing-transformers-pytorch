@@ -329,7 +329,8 @@ class MemorizingTransformer(nn.Module):
         intra_attn_values_gating = False,
         xl_max_memories = 0,
         xl_memory_layers = None,
-        shift_xl_memories_down = 0.
+        shift_xl_memories_down = 0.,
+        knn_memory_multiprocessing = False
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, dim)
@@ -406,7 +407,8 @@ class MemorizingTransformer(nn.Module):
 
         self.knn_mem_kwargs = dict(
             dim = self.dim_head,
-            max_memories = self.max_knn_memories
+            max_memories = self.max_knn_memories,
+            multiprocessing = knn_memory_multiprocessing
         )
 
     def create_knn_memories(
@@ -417,7 +419,7 @@ class MemorizingTransformer(nn.Module):
         return KNNMemoryList.create_memories(
             batch_size = batch_size,
             num_memory_layers = self.num_memory_layers,
-            memories_directory = self.knn_memories_directory
+            memories_directory = self.knn_memories_directory,
         )(**self.knn_mem_kwargs)
 
     @contextmanager

@@ -121,7 +121,7 @@ class KNN():
             self.ages_since_last_hit += 1
             self.ages_since_last_hit *= (hits == 0)
 
-        if increment_age:
+        if increment_age and self.keep_stats:
             self.age_num_iterations += 1
 
         if return_distances:
