@@ -324,7 +324,6 @@ class MemorizingTransformer(nn.Module):
         clear_memories_on_sos_token_id = None,
         clear_memories_on_eos_token_id = None,
         knn_memories_directory = DEFAULT_KNN_MEMORY_MEMMAP_DIRECTORY,
-        knn_use_gpu = False,
         shift_knn_memories_down = 0.,
         pad_id = 0,
         intra_attn_values_gating = False,
@@ -363,7 +362,6 @@ class MemorizingTransformer(nn.Module):
         self.memorizing_layers = unique(memorizing_layers)
         self.num_memory_layers = len(memorizing_layers)
 
-        self.knn_use_gpu = knn_use_gpu
         self.clear_memories_on_sos_token_id = clear_memories_on_sos_token_id
         self.clear_memories_on_eos_token_id = clear_memories_on_eos_token_id
 
@@ -408,8 +406,7 @@ class MemorizingTransformer(nn.Module):
 
         self.knn_mem_kwargs = dict(
             dim = self.dim_head,
-            max_memories = self.max_knn_memories,
-            knn_use_gpu = self.knn_use_gpu,
+            max_memories = self.max_knn_memories
         )
 
     def create_knn_memories(

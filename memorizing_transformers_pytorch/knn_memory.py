@@ -54,15 +54,14 @@ class KNN():
         max_num_entries,
         cap_num_entries = False,
         M = 15,
-        use_gpu = False
+        keep_stats = False
     ):
         index = faiss.IndexHNSWFlat(dim, M, faiss.METRIC_INNER_PRODUCT)
-        self.use_gpu = use_gpu
-
-        self.index = faiss.index_cpu_to_gpu(faiss.StandardGpuResources(), FAISS_INDEX_GPU_ID, index) if use_gpu else index
+        self.index = index
         self.max_num_entries = max_num_entries
         self.cap_num_entries = cap_num_entries
         self.is_trained = False
+        self.keep_stats = keep_stats
 
         self.reset()
 
@@ -72,9 +71,12 @@ class KNN():
 
     def reset(self):
         self.ids = np.empty((0,), dtype = np.int32)
-        self.hits = np.empty((0,), dtype = np.int32)
-        self.age_num_iterations = np.empty((0,), dtype = np.int32)
-        self.ages_since_last_hit = np.empty((0,), dtype = np.int32)
+
+        if self.keep_stats:
+            self.hits = np.empty((0,), dtype = np.int32)
+            self.age_num_iterations = np.empty((0,), dtype = np.int32)
+            self.ages_since_last_hit = np.empty((0,), dtype = np.int32)
+
         self.index.reset()
         self.is_trained = False
 
@@ -87,9 +89,11 @@ class KNN():
             self.train(x)
 
         self.ids = np.concatenate((ids, self.ids))
-        self.hits = np.concatenate((np.zeros_like(ids), self.hits))
-        self.age_num_iterations = np.concatenate((np.zeros_like(ids), self.age_num_iterations))
-        self.ages_since_last_hit = np.concatenate((np.zeros_like(ids), self.ages_since_last_hit))
+
+        if self.keep_stats:
+            self.hits = np.concatenate((np.zeros_like(ids), self.hits))
+            self.age_num_iterations = np.concatenate((np.zeros_like(ids), self.age_num_iterations))
+            self.ages_since_last_hit = np.concatenate((np.zeros_like(ids), self.ages_since_last_hit))
 
         if self.cap_num_entries and len(self.ids) > self.max_num_entries:
             self.reset()
@@ -110,7 +114,7 @@ class KNN():
 
         distances, indices = self.index.search(x, k = topk)
 
-        if increment_hits:
+        if increment_hits and self.keep_stats:
             hits = count_intersect(self.ids, rearrange(indices, '... -> (...)'))
             self.hits += hits
 
@@ -135,7 +139,6 @@ class KNNMemory():
         max_memories = 16000,
         num_indices = 1,
         memmap_filename = './knn.memory.memmap',
-        knn_use_gpu = False,
         multiprocessing = True
     ):
         self.dim = dim
@@ -147,7 +150,7 @@ class KNNMemory():
         self.db_offsets = np.zeros(num_indices, dtype = np.int32)
 
         self.db = np.memmap(memmap_filename, mode = 'w+', dtype = np.float32, shape = self.shape)
-        self.knns = [KNN(dim = dim, max_num_entries = max_memories, use_gpu = knn_use_gpu, cap_num_entries = True) for _ in range(num_indices)]
+        self.knns = [KNN(dim = dim, max_num_entries = max_memories, cap_num_entries = True) for _ in range(num_indices)]
     
         self.n_jobs = cpu_count() if multiprocessing else 1
 
