@@ -181,7 +181,8 @@ class KNNAttention(nn.Module):
         dim_head = 64,
         dropout = 0.,
         num_retrieved_memories = 32,
-        xl_max_memories = 0.
+        xl_max_memories = 0.,
+        l2norm_queries = False
     ):
         super().__init__()
         self.heads = heads
@@ -193,6 +194,7 @@ class KNNAttention(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         self.knn_mem_dropout = nn.Dropout(dropout)
+        self.l2norm_queries = l2norm_queries
 
         self.null_k = nn.Parameter(torch.randn(dim_head))
         self.null_v = nn.Parameter(torch.randn(dim_head))
@@ -247,6 +249,9 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
+        if self.l2norm_queries:
+            mem_q = l2norm(mem_q)
+
         mem_kv, mem_mask = knn_memory.search(mem_q, self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
@@ -298,6 +303,7 @@ class MemorizingTransformer(nn.Module):
         dim_head = 64,
         heads = 8,
         knn_attn_heads = None,
+        knn_attn_l2norm_queries = False,
         attn_dropout = 0.,
         ff_mult = 4,
         ff_dropout = 0.,
@@ -366,7 +372,7 @@ class MemorizingTransformer(nn.Module):
             xl_max_memories_layer = 0 if not use_xl_memories else xl_max_memories
 
             if use_knn_attention:
-                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer)
+                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer, l2norm_queries = knn_attn_l2norm_queries)
             else:
                 attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, xl_max_memories = xl_max_memories_layer)
 
