@@ -182,7 +182,8 @@ class KNNAttention(nn.Module):
         dropout = 0.,
         num_retrieved_memories = 32,
         xl_max_memories = 0.,
-        l2norm_queries = False
+        l2norm_queries = False,
+        reproject_knn_memories = False
     ):
         super().__init__()
         self.heads = heads
@@ -195,6 +196,9 @@ class KNNAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.knn_mem_dropout = nn.Dropout(dropout)
         self.l2norm_queries = l2norm_queries
+
+        self.project_memory_keys = nn.Linear(dim_head, dim_head) if reproject_knn_memories else nn.Identity()
+        self.project_memory_values = nn.Linear(dim_head, dim_head) if reproject_knn_memories else nn.Identity()
 
         self.null_k = nn.Parameter(torch.randn(dim_head))
         self.null_v = nn.Parameter(torch.randn(dim_head))
@@ -255,6 +259,11 @@ class KNNAttention(nn.Module):
         mem_kv, mem_mask = knn_memory.search(mem_q, self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
+        # reproject memories if needed
+
+        mem_k = self.project_memory_keys(mem_k)
+        mem_v = self.project_memory_values(mem_v)
+
         # use null key / value to protect against empty memory
 
         null_k, null_v = repeat_many((self.null_k, self.null_v), 'd -> b h i 1 d', b = b, h = mem_q.shape[1], i = n)
@@ -308,6 +317,7 @@ class MemorizingTransformer(nn.Module):
         ff_mult = 4,
         ff_dropout = 0.,
         memorizing_layers = None,
+        reproject_knn_memories = False,
         max_knn_memories = 250000,
         num_retrieved_memories = 32,
         clear_memories_on_sos_token_id = None,
@@ -372,7 +382,7 @@ class MemorizingTransformer(nn.Module):
             xl_max_memories_layer = 0 if not use_xl_memories else xl_max_memories
 
             if use_knn_attention:
-                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer, l2norm_queries = knn_attn_l2norm_queries)
+                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer, l2norm_queries = knn_attn_l2norm_queries, reproject_knn_memories = reproject_knn_memories)
             else:
                 attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, xl_max_memories = xl_max_memories_layer)
 
