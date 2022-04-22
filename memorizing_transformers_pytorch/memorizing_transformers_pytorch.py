@@ -312,7 +312,7 @@ class MemorizingTransformer(nn.Module):
         dim_head = 64,
         heads = 8,
         knn_attn_heads = None,
-        knn_attn_l2norm_queries = False,
+        knn_attn_l2norm_queries = True,
         attn_dropout = 0.,
         ff_mult = 4,
         ff_dropout = 0.,
