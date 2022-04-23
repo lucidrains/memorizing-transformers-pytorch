@@ -191,6 +191,7 @@ class KNNAttention(nn.Module):
         super().__init__()
         self.heads = heads
         self.scale = nn.Parameter(torch.ones(heads, 1, 1) * math.log(attn_scale_init))
+        self.knn_attn_bias = nn.Parameter(torch.zeros(heads, 1, 1))
 
         inner_dim = heads * dim_head
         self.xl_max_memories = xl_max_memories
@@ -251,6 +252,7 @@ class KNNAttention(nn.Module):
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
         sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * scale
+        sim_mem = sim_mem + self.knn_attn_bias
         sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
 
         # calculate new XL memories, as well as memories to be discarded
