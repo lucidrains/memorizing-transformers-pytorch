@@ -191,6 +191,7 @@ class KNNAttention(nn.Module):
         super().__init__()
         self.heads = heads
         self.scale = nn.Parameter(torch.ones(heads, 1, 1) * math.log(attn_scale_init))
+        self.local_attn_bias = nn.Parameter(torch.zeros(heads, 1, 1))
         self.knn_attn_bias = nn.Parameter(torch.zeros(heads, 1, 1))
 
         inner_dim = heads * dim_head
@@ -241,6 +242,7 @@ class KNNAttention(nn.Module):
         if exists(rel_pos_bias):
             sim = rel_pos_bias[..., -i:, -j:] + sim
 
+        sim = sim + self.local_attn_bias
         mask_value = -torch.finfo(sim.dtype).max
 
         causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
