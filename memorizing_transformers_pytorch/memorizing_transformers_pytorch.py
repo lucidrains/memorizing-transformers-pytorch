@@ -16,6 +16,9 @@ from memorizing_transformers_pytorch.knn_memory import KNNMemoryList, DEFAULT_KN
 
 # helper functions
 
+def identity(t):
+    return t
+
 def exists(val):
     return val is not None
 
@@ -238,10 +241,8 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
-        if self.l2norm_queries:
-            q = l2norm(q)
-
-        mem_kv, mem_mask = knn_memory.search(q, self.num_retrieved_memories)
+        knn_transform_q_fn = l2norm if self.l2norm_queries else identity
+        mem_kv, mem_mask = knn_memory.search(knn_transform_q_fn(q), self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
         sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * self.scale
