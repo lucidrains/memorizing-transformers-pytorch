@@ -238,9 +238,9 @@ class KNNAttention(nn.Module):
         # calculate knn attention over memory, if index is passed in
 
         if self.l2norm_queries:
-            normed_q = l2norm(q)
+            q = l2norm(q)
 
-        mem_kv, mem_mask = knn_memory.search(normed_q, self.num_retrieved_memories)
+        mem_kv, mem_mask = knn_memory.search(q, self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
         sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * self.scale
