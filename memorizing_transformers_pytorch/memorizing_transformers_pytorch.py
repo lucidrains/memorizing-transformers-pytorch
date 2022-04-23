@@ -2,6 +2,7 @@ import math
 from functools import partial
 from contextlib import contextmanager
 from pathlib import Path
+from filelock import FileLock
 
 import torch
 import torch.nn.functional as F
@@ -405,9 +406,14 @@ class MemorizingTransformer(nn.Module):
         self,
         **kwargs
     ):
-        knn_memories = self.create_knn_memories(**kwargs)
-        yield knn_memories
-        knn_memories.cleanup()
+        knn_dir = Path(self.knn_memories_directory)
+        knn_dir.mkdir(exist_ok = True, parents = True)
+        lock = FileLock(str(knn_dir / 'mutex'))
+
+        with lock:
+            knn_memories = self.create_knn_memories(**kwargs)
+            yield knn_memories
+            knn_memories.cleanup()
 
     def clear_memory(self, x, token_id):
         """ clears the KNN memories based on if the batch row contains the specified token id """

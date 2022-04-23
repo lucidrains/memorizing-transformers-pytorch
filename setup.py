@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'memorizing-transformers-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.3.1',
+  version = '0.3.2',
   license='MIT',
   description = 'Memorizing Transformer - Pytorch',
   author = 'Phil Wang',
@@ -19,6 +19,7 @@ setup(
   install_requires=[
     'einops>=0.4',
     'einops-exts',
+    'filelock',
     'joblib',
     'faiss-gpu',
     'numpy',
