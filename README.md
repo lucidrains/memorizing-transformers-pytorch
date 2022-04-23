@@ -168,3 +168,16 @@ $ python train.py
   primaryClass = {cs.CL}
 }
 ```
+
+```bibtex
+@misc{henry2020querykey,
+    title   = {Query-Key Normalization for Transformers},
+    author  = {Alex Henry and Prudhvi Raj Dachapally and Shubham Pawar and Yuxuan Chen},
+    year    = {2020},
+    eprint  = {2010.04245},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CL}
+}
+```
+
+*Memory is Attention through Time* - Alex Graves

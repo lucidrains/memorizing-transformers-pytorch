@@ -121,7 +121,7 @@ class Attention(nn.Module):
         heads = 8,
         dim_head = 64,
         dropout = 0.,
-        xl_max_memories = 0.
+        xl_max_memories = 0.,
     ):
         super().__init__()
         self.heads = heads
@@ -186,12 +186,12 @@ class KNNAttention(nn.Module):
         dropout = 0.,
         num_retrieved_memories = 32,
         xl_max_memories = 0.,
-        l2norm_queries = False,
-        reproject_knn_memories = False
+        attn_scale_init = 20,
     ):
         super().__init__()
         self.heads = heads
-        self.scale = dim_head ** -0.5
+        self.scale = nn.Parameter(torch.ones(heads, 1, 1) * math.log(attn_scale_init))
+
         inner_dim = heads * dim_head
         self.xl_max_memories = xl_max_memories
 
@@ -199,7 +199,6 @@ class KNNAttention(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         self.knn_mem_dropout = nn.Dropout(dropout)
-        self.l2norm_queries = l2norm_queries
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
@@ -219,6 +218,11 @@ class KNNAttention(nn.Module):
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = h)
 
+        # in paper, they showed normalizing of keys led to more stable training
+        # we'll just go with full cosine sim attention https://arxiv.org/abs/2010.04245
+
+        q, k = map(l2norm, (q, k))
+
         # handle xl memory
 
         if exists(xl_memory):
@@ -228,7 +232,9 @@ class KNNAttention(nn.Module):
 
         # calculate local attention
 
-        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
+        scale = self.scale.exp()
+
+        sim = einsum('b h i d, b j d -> b h i j', q, k) * scale
         i, j = sim.shape[-2:]
 
         if exists(rel_pos_bias):
@@ -241,11 +247,10 @@ class KNNAttention(nn.Module):
 
         # calculate knn attention over memory, if index is passed in
 
-        knn_transform_q_fn = l2norm if self.l2norm_queries else identity
-        mem_kv, mem_mask = knn_memory.search(knn_transform_q_fn(q), self.num_retrieved_memories)
+        mem_kv, mem_mask = knn_memory.search(q, self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
-        sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * self.scale
+        sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * scale
         sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
 
         # calculate new XL memories, as well as memories to be discarded
@@ -260,7 +265,7 @@ class KNNAttention(nn.Module):
         # add memories to be discarded into KNN memory
 
         if add_knn_memory and new_kv_memories_discarded.numel() > 0:
-            knn_memory.add(l2norm(new_kv_memories_discarded))  # in paper, they showed that normalizing the keys / values led to more stable training
+            knn_memory.add(new_kv_memories_discarded)
 
         # attention (combining local and distant)
 
@@ -292,12 +297,10 @@ class MemorizingTransformer(nn.Module):
         dim_head = 64,
         heads = 8,
         knn_attn_heads = None,
-        knn_attn_l2norm_queries = True,
         attn_dropout = 0.,
         ff_mult = 4,
         ff_dropout = 0.,
         memorizing_layers = None,
-        reproject_knn_memories = False,
         max_knn_memories = 250000,
         num_retrieved_memories = 32,
         clear_memories_on_sos_token_id = None,
@@ -361,7 +364,7 @@ class MemorizingTransformer(nn.Module):
             xl_max_memories_layer = 0 if not use_xl_memories else xl_max_memories
 
             if use_knn_attention:
-                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer, l2norm_queries = knn_attn_l2norm_queries, reproject_knn_memories = reproject_knn_memories)
+                attn = KNNAttention(dim = dim, dim_head = dim_head, heads = knn_attn_heads, dropout = attn_dropout, num_retrieved_memories = num_retrieved_memories, xl_max_memories = xl_max_memories_layer)
             else:
                 attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, xl_max_memories = xl_max_memories_layer)
 
