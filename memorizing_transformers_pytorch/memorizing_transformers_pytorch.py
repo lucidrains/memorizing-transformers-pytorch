@@ -197,15 +197,9 @@ class KNNAttention(nn.Module):
         self.knn_mem_dropout = nn.Dropout(dropout)
         self.l2norm_queries = l2norm_queries
 
-        self.project_memory_keys = nn.Linear(dim_head, dim_head) if reproject_knn_memories else nn.Identity()
-        self.project_memory_values = nn.Linear(dim_head, dim_head) if reproject_knn_memories else nn.Identity()
-
-        self.null_k = nn.Parameter(torch.randn(dim_head))
-        self.null_v = nn.Parameter(torch.randn(dim_head))
-
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
-        self.to_out = nn.Linear(inner_dim, dim)
+        self.to_out = nn.Linear(inner_dim, dim, bias = False)
 
     def forward(
         self,
@@ -221,11 +215,6 @@ class KNNAttention(nn.Module):
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = h)
 
-        # dedicate half of the attention heads for local attention, and half for long term memory
-
-        half_heads = h // 2
-        local_q, mem_q = q[:, :half_heads], q[:, half_heads:]
-
         # handle xl memory
 
         if exists(xl_memory):
@@ -235,7 +224,7 @@ class KNNAttention(nn.Module):
 
         # calculate local attention
 
-        sim = einsum('b h i d, b j d -> b h i j', local_q, k) * self.scale
+        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
         i, j = sim.shape[-2:]
 
         if exists(rel_pos_bias):
@@ -246,38 +235,16 @@ class KNNAttention(nn.Module):
         causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, mask_value)
 
-        attn = stable_softmax(sim)
-        attn = self.dropout(attn)
-
-        local_values = einsum('b h i j, b j d -> b h i d', attn, v)
-
         # calculate knn attention over memory, if index is passed in
 
         if self.l2norm_queries:
-            mem_q = l2norm(mem_q)
+            normed_q = l2norm(q)
 
-        mem_kv, mem_mask = knn_memory.search(mem_q, self.num_retrieved_memories)
+        mem_kv, mem_mask = knn_memory.search(normed_q, self.num_retrieved_memories)
         mem_k, mem_v = mem_kv.unbind(dim = -2)
 
-        # reproject memories if needed
-
-        mem_k = self.project_memory_keys(mem_k)
-        mem_v = self.project_memory_values(mem_v)
-
-        # use null key / value to protect against empty memory
-
-        null_k, null_v = repeat_many((self.null_k, self.null_v), 'd -> b h i 1 d', b = b, h = mem_q.shape[1], i = n)
-
-        mem_k = torch.cat((null_k, mem_k), dim = -2)
-        mem_v = torch.cat((null_v, mem_v), dim = -2)
-        mem_mask = F.pad(mem_mask, (1, 0), value = True)
-        sim_mem = einsum('b h i d, b h i j d -> b h i j', mem_q, mem_k) * self.scale
-
+        sim_mem = einsum('b h i d, b h i j d -> b h i j', q, mem_k) * self.scale
         sim_mem = sim_mem.masked_fill(~mem_mask, mask_value)
-        attn_mem = stable_softmax(sim_mem)
-        attn_mem = self.knn_mem_dropout(attn_mem)
-
-        mem_values = einsum('b h i j, b h i j d -> b h i d', attn_mem, mem_v)
 
         # calculate new XL memories, as well as memories to be discarded
 
@@ -293,9 +260,20 @@ class KNNAttention(nn.Module):
         if add_knn_memory and new_kv_memories_discarded.numel() > 0:
             knn_memory.add(l2norm(new_kv_memories_discarded))  # in paper, they showed that normalizing the keys / values led to more stable training
 
+        # attention (combining local and distant)
+
+        sim = torch.cat((sim_mem, sim), dim = -1)
+        attn = stable_softmax(sim)
+        attn = self.dropout(attn)
+
+        local_attn, mem_attn = attn[..., self.num_retrieved_memories:], attn[..., :self.num_retrieved_memories]
+        local_out = einsum('b h i j, b j d -> b h i d', local_attn, v)
+        mem_out = einsum('b h i j, b h i j d -> b h i d', mem_attn, mem_v)
+
+        out = local_out + mem_out
+
         # combine heads and project out
 
-        out = torch.cat((mem_values, local_values), dim = 1)
         out = rearrange(out, 'b h n d -> b n (h d)')
 
         return self.to_out(out), new_xl_kv_memories
@@ -369,7 +347,6 @@ class MemorizingTransformer(nn.Module):
         # relative positional bias
 
         self.rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads)
-        self.knn_rel_pos_bias = T5RelativePositionBias(scale = dim_head ** 0.5, heads = heads // 2)
 
         # layers
 
@@ -490,7 +467,6 @@ class MemorizingTransformer(nn.Module):
         max_context_len = max([seq_len, *map(lambda t: (t.shape[-3] if exists(t) else 0) + seq_len, xl_memories)])
 
         rel_pos_bias = self.rel_pos_bias(seq_len, max_context_len, device = device)
-        knn_rel_pos_bias = self.knn_rel_pos_bias(seq_len, max_context_len, device = device)
 
         # keep track of new xl memories
 
@@ -507,7 +483,7 @@ class MemorizingTransformer(nn.Module):
             attn_kwargs = dict(rel_pos_bias = rel_pos_bias)
 
             if is_memorizing_layer:
-                attn_kwargs = {'rel_pos_bias': knn_rel_pos_bias, 'knn_memory': next(knn_memories_iter), 'add_knn_memory': add_knn_memory}
+                attn_kwargs = {**attn_kwargs, 'knn_memory': next(knn_memories_iter), 'add_knn_memory': add_knn_memory}
 
             if is_xl_memory_layer:
                 attn_kwargs = {**attn_kwargs, 'xl_memory': next(xl_memories_iter)}
