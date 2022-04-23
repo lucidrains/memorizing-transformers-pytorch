@@ -4,6 +4,8 @@
 
 Implementation of <a href="https://arxiv.org/abs/2203.08913">Memorizing Transformers</a> (ICLR 2022), attention net augmented with indexing and retrieval of memories using approximate nearest neighbors, in Pytorch
 
+This repository deviates from the paper slightly, using a hybrid attention across attention logits local and distant (knn). It also uses cosine similarity attention (with learned temperature) for the KNN attention layer.
+
 ## Install
 
 ```bash
