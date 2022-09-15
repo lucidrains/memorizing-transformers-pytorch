@@ -112,7 +112,7 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval = 10., desc = 'training'):
     if not (i % VALIDATE_EVERY):
         model.eval()
 
-        valid_data = next(train_loader)
+        valid_data = next(valid_loader)
         valid_loss = 0.
 
         with torch.no_grad(), model.knn_memories_context(batch_size = BATCH_SIZE) as knn_memories:
