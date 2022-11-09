@@ -6,6 +6,7 @@ setup(
   version = '0.3.9',
   license='MIT',
   description = 'Memorizing Transformer - Pytorch',
+  long_description_content_type = 'text/markdown',
   author = 'Phil Wang',
   author_email = 'lucidrains@gmail.com',
   url = 'https://github.com/lucidrains/memorizing-transformers-pytorch',
