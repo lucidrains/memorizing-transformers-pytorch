@@ -199,8 +199,10 @@ class KNNMemory():
         @delayed
         def knn_add(knn, key, db_offset):
             knn.add(key, ids = knn_insert_ids + db_offset)
+            return knn
 
-        Parallel(n_jobs = self.n_jobs)(knn_add(*args) for args in zip(knns, keys, db_offsets))
+        updated_knns = Parallel(n_jobs = self.n_jobs)(knn_add(*args) for args in zip(knns, keys, db_offsets))
+        self.knns = updated_knns
 
         # add the new memories to the memmap "database"
 
