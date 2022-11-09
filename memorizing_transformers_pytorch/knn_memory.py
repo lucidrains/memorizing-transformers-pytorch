@@ -8,8 +8,7 @@ from functools import wraps
 
 from contextlib import ExitStack, contextmanager
 
-from einops import rearrange
-from einops_exts import rearrange_with_anon_dims, check_shape
+from einops import rearrange, pack, unpack
 
 # multiprocessing
 
@@ -43,6 +42,9 @@ def multi_context(*cms):
 def count_intersect(x, y):
     # returns an array that shows how many times an element in x is contained in tensor y
     return np.sum(rearrange(x, 'i -> i 1') == rearrange(y, 'j -> 1 j'), axis = -1)
+
+def check_shape(tensor, pattern, **kwargs):
+    return rearrange(tensor, f"{pattern} -> {pattern}", **kwargs)
 
 # a wrapper around faiss IndexIVFFlat
 # taking care of expiring old keys automagically
@@ -252,8 +254,8 @@ class KNNMemory():
         all_key_values = torch.stack(all_key_values)
         all_key_values = all_key_values.masked_fill(~rearrange(all_masks, '... -> ... 1 1'), 0.)
 
-        all_key_values = rearrange_with_anon_dims(all_key_values, 'b (...p) ... -> b ...p ...', p = prec_dims)
-        all_masks = rearrange_with_anon_dims(all_masks, 'b (...p) ... -> b ...p ...', p = prec_dims)
+        all_key_values, = unpack(all_key_values, [prec_dims], 'b * n kv d')
+        all_masks, = unpack(all_masks, [prec_dims], 'b * n')
 
         return all_key_values.to(device), all_masks.to(device)
 
