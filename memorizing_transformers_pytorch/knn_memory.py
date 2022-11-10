@@ -220,9 +220,8 @@ class KNNMemory():
         increment_hits = True,
         increment_age = True
     ):
-        _, *prec_dims, _ = queries.shape
         check_shape(queries, 'b ... d', d = self.dim, b = len(self.scoped_indices))
-        queries = rearrange(queries, 'b ... d -> b (...) d')
+        queries, ps = pack([queries], 'b * d')
 
         device = queries.device
         queries = queries.detach().cpu().numpy()
@@ -256,8 +255,8 @@ class KNNMemory():
         all_key_values = torch.stack(all_key_values)
         all_key_values = all_key_values.masked_fill(~rearrange(all_masks, '... -> ... 1 1'), 0.)
 
-        all_key_values, = unpack(all_key_values, [prec_dims], 'b * n kv d')
-        all_masks, = unpack(all_masks, [prec_dims], 'b * n')
+        all_key_values, = unpack(all_key_values, ps, 'b * n kv d')
+        all_masks, = unpack(all_masks, ps, 'b * n')
 
         return all_key_values.to(device), all_masks.to(device)
 
