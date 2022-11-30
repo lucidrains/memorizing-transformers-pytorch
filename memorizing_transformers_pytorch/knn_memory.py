@@ -202,7 +202,8 @@ class KNNMemory():
             return knn
 
         updated_knns = Parallel(n_jobs = self.n_jobs)(knn_add(*args) for args in zip(knns, keys, db_offsets))
-        self.knns = updated_knns
+        for knn_idx, scoped_idx in enumerate(self.scoped_indices):
+            self.knns[scoped_idx] = updated_knns[knn_idx]
 
         # add the new memories to the memmap "database"
 
