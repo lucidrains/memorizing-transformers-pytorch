@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'memorizing-transformers-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.3.9',
+  version = '0.3.10',
   license='MIT',
   description = 'Memorizing Transformer - Pytorch',
   long_description_content_type = 'text/markdown',
