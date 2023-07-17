@@ -34,10 +34,6 @@ def cast_tuple(val, length = 1):
 def l2norm(t):
     return F.normalize(t, dim = -1)
 
-def stable_softmax(t, dim = -1):
-    t = t - t.amax(dim = dim, keepdim = True).detach()
-    return F.softmax(t, dim = dim)
-
 # helper classes
 
 class PreNormResidual(nn.Module):
@@ -157,7 +153,7 @@ class Attention(nn.Module):
         causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
         sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
-        attn = stable_softmax(sim)
+        attn = sim.softmax(dim = -1)
         attn = self.dropout(attn)
 
         out = einsum('b h i j, b j d -> b h i d', attn, v)
@@ -273,7 +269,7 @@ class KNNAttention(nn.Module):
         # attention (combining local and distant)
 
         sim = torch.cat((sim_mem, sim), dim = -1)
-        attn = stable_softmax(sim)
+        attn = sim.softmax(dim = -1)
         attn = self.dropout(attn)
 
         local_attn, mem_attn = attn[..., self.num_retrieved_memories:], attn[..., :self.num_retrieved_memories]
